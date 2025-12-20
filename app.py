@@ -77,5 +77,11 @@ else:
     st.info('Нет данных. Попробуйте обновить или проверить API.')
 
 # Автообновление каждые 60 сек
-time.sleep(60)
-st.rerun()
+# Автообновление каждые 60 секунд (правильный способ для Streamlit)
+placeholder = st.empty()
+with placeholder.container():
+    st.info("Данные обновляются автоматически каждые 60 секунд ⏳")
+
+# Это заставит Streamlit перезапускать скрипт периодически
+if st.session_state.get('auto_refresh', True):
+    st.autoreload(interval=60 * 1000)  # 60 секунд в миллисекундах
