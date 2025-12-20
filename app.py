@@ -51,7 +51,16 @@ def get_arbitrage_data():
 # Интерфейс Streamlit
 st.title('Скринер Арбитража Криптовалют')
 st.markdown('Сканирует разницы цен на CEX биржах через CoinGecko API. Обновляйте для свежих данных.')
+# Добавь слайдер для выбора интервала обновления
+refresh_interval = st.select_slider(
+    "Автообновление (секунды)",
+    options=[0, 30, 60, 120, 300],
+    value=60,
+    help="0 = без автообновления"
+)
 
+if refresh_interval > 0:
+    st.autoreload(interval=refresh_interval * 1000)
 # Кнопка обновления
 if st.button('Обновить данные'):
     st.cache_data.clear()
