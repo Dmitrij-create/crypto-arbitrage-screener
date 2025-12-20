@@ -2,45 +2,67 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
+# Модуль time больше не нужен, так как запросы быстрые
 
-st.set_page_config(page_title="Arbitrage Scanner", layout="wide")
+st.set_page_config(page_title="Arbitrage Scanner (Optimized)", layout="wide")
 
 def autorefresh(interval_seconds):
     components.html(
-        f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
+        f"""
+        <script>
+        setTimeout(function() {{
+            window.parent.location.reload();
+        }}, {interval_seconds * 1000});
+        </script>
+        """,
         height=0,
     )
 
-# Список бирж для сканирования
+# Список бирж для сканирования и базовая валюта
 EXCHANGES = ['binance', 'bybit', 'kraken', 'gateio', 'huobi']
+BASE_CURRENCY = 'USDT'
 
 @st.cache_data(ttl=30)
-def get_data():
+def get_data_optimized():
     data = []
-    # Список популярных монет к USDT
-    symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'ADA/USDT', 'XRP/USDT', 'DOT/USDT']
-    
-    # Создаем объекты бирж
     ex_objects = {}
+    
+    st.sidebar.info("Загрузка данных со всех бирж...")
+
+    # 1. Загружаем все цены ОДНИМ запросом для каждой биржи
+    prices_by_exchange = {}
     for ex_id in EXCHANGES:
         try:
             ex_class = getattr(ccxt, ex_id)
-            ex_objects[ex_id] = ex_class({'enableRateLimit': True})
-        except:
+            ex_obj = ex_class({'enableRateLimit': True})
+            # Fetch_tickers получает все пары сразу
+            tickers = ex_obj.fetch_tickers()
+            # Сохраняем только нужные пары (например, к USDT)
+            prices_by_exchange[ex_id] = {
+                s: t['last'] for s, t in tickers.items() 
+                if s.endswith(f'/{BASE_CURRENCY}') and t and 'last' in t
+            }
+        except Exception as e:
+            st.warning(f"Ошибка загрузки данных с {ex_id}: {e}")
             continue
 
-    progress_bar = st.progress(0)
+    # Получаем общий набор всех символов, которые есть хотя бы на 2 биржах
+    all_symbols = set()
+    for ex_id in prices_by_exchange:
+        for symbol in prices_by_exchange[ex_id]:
+            all_symbols.add(symbol)
     
-    for i, symbol in enumerate(symbols):
+    # Можно ограничить количество пар здесь, но теперь это не обязательно, т.к. код быстрый
+    # limit_symbols = list(all_symbols)[:100] 
+
+    # 2. Перебираем все символы и сравниваем цены (происходит мгновенно в памяти)
+    for symbol in all_symbols:
         prices = {}
-        for ex_id, ex_obj in ex_objects.items():
-            try:
-                ticker = ex_obj.fetch_ticker(symbol)
-                if ticker and 'last' in ticker:
-                    prices[ex_id] = ticker['last']
-            except:
-                continue
+        for ex_id in prices_by_exchange:
+            if symbol in prices_by_exchange[ex_id]:
+                prices[ex_id] = prices_by_exchange[ex_id][symbol]
         
+        # Если найдено 2 или более цены для одной монеты
         if len(prices) >= 2:
             min_ex = min(prices, key=prices.get)
             max_ex = max(prices, key=prices.get)
@@ -57,28 +79,33 @@ def get_data():
                     'Цена продажи': f"{max_p:,.4f}",
                     'Профит (%)': round(diff, 3)
                 })
-        progress_bar.progress((i + 1) / len(symbols))
-    
-    progress_bar.empty()
+
     return pd.DataFrame(data)
 
-st.title("🚀 Crypto Arbitrage Scanner (CCXT)")
+# --- ИНТЕРФЕЙС ---
+st.title("🚀 Crypto Arbitrage Scanner (Optimized)")
 
-# Настройки в боковой панели
-refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=[30, 60, 120, 300], value=60)
-min_profit = st.sidebar.slider("Мин. профит (%)", 0.0, 2.0, 0.1)
+st.sidebar.header("Настройки")
+refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=, value=60)
+min_profit = st.sidebar.slider("Мин. профит (%)", 0.0, 5.0, 0.3)
 
 if refresh_sec > 0:
     autorefresh(refresh_sec)
 
 try:
-    df = get_data()
+    df = get_data_optimized() 
     if not df.empty:
         filtered_df = df[df['Профит (%)'] >= min_profit]
-        st.table(filtered_df.sort_values('Профит (%)', ascending=False))
+        st.subheader(f"Найдено {len(filtered_df)} связок с профитом > {min_profit}%")
+        
+        st.dataframe(
+            filtered_df.sort_values('Профит (%)', ascending=False)
+            .style.background_gradient(cmap='plasma', subset=['Профит (%)']),
+            use_container_width=True
+        )
     else:
-        st.warning("Биржи временно недоступны или нет данных.")
+        st.warning("Биржи временно недоступны или нет данных. Попробуйте обновить через минуту.")
 except Exception as e:
-    st.error(f"Ошибка: {e}")
+    st.error(f"Произошла критическая ошибка: {e}")
 
 st.caption(f"Последнее обновление: {pd.Timestamp.now().strftime('%H:%M:%S')}")
