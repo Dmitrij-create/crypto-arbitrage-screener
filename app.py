@@ -60,7 +60,18 @@ refresh_interval = st.select_slider(
 )
 
 if refresh_interval > 0:
-    st.autoreload(interval=refresh_interval * 1000)
+    # Правильное автообновление без sleep в главном потоке (используем компонент)
+import streamlit.components.v1 as components
+
+# Функция для метатега автообновления
+def autorefresh(interval):
+    components.html(
+        f"<script>setTimeout(() => window.location.reload(), {interval * 1000});</script>",
+        height=0
+    )
+
+if refresh_interval > 0:
+    autorefresh(refresh_interval) 
 # Кнопка обновления
 if st.button('Обновить данные'):
     st.cache_data.clear()
@@ -93,4 +104,15 @@ with placeholder.container():
 
 # Это заставит Streamlit перезапускать скрипт периодически
 if st.session_state.get('auto_refresh', True):
-    st.autoreload(interval=60 * 1000)  # 60 секунд в миллисекундах
+    # Правильное автообновление без sleep в главном потоке (используем компонент)
+import streamlit.components.v1 as components
+
+# Функция для метатега автообновления
+def autorefresh(interval):
+    components.html(
+        f"<script>setTimeout(() => window.location.reload(), {interval * 1000});</script>",
+        height=0
+    )
+
+if refresh_interval > 0:
+    autorefresh(refresh_interval)
