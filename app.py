@@ -1,118 +1,125 @@
 import streamlit as st
 from pycoingecko import CoinGeckoAPI
 import pandas as pd
-import time
+import streamlit.components.v1 as components
+
+# Настройка страницы
+st.set_page_config(page_title="Crypto Arbitrage Screener", layout="wide")
 
 # Инициализация API
 cg = CoinGeckoAPI()
 
-# Список топ-монет (можно расширить)
+# Список топ-монет
 top_coins = [
     'bitcoin', 'ethereum', 'solana', 'binancecoin', 'ripple',
-    'cardano', 'avalanche-2', 'terra-luna-2', 'polkadot', 'dogecoin'
+    'cardano', 'avalanche-2', 'polkadot', 'dogecoin', 'chainlink'
 ]
 
-@st.cache_data(ttl=60)  # Кэш на 60 сек для снижения нагрузки на API
+# Функция для автообновления страницы через JS-вставку
+def autorefresh(interval_seconds):
+    components.html(
+        f"""
+        <script>
+        setTimeout(function() {{
+            window.parent.location.reload();
+        }}, {interval_seconds * 1000});
+        </script>
+        """,
+        height=0,
+    )
+
+@st.cache_data(ttl=60)  # Кэш на 60 сек
 def get_arbitrage_data():
     arbs = []
-    for coin_id in top_coins:
+    progress_bar = st.progress(0)
+    
+    for idx, coin_id in enumerate(top_coins):
         try:
             tickers = cg.get_coin_ticker_by_id(id=coin_id)
             prices = []
             exchanges = []
-            for ticker in tickers['tickers']:
-                # Фильтр по USDT/USD парам (арбитраж в USD-эквиваленте)
-                if ticker['target'] in ['USD', 'USDT']:
-                    price_usd = ticker['converted_last'].get('usd')
-                    if price_usd:
-                        prices.append(price_usd)
-                        exchanges.append(ticker['market']['name'])
             
-            if prices and len(prices) >= 2:  # Нужно минимум 2 биржи
+            for ticker in tickers.get('tickers', []):
+                # Фильтр по парам к USD/USDT
+                if ticker.get('target') in ['USD', 'USDT']:
+                    price_usd = ticker.get('converted_last', {}).get('usd')
+                    market_name = ticker.get('market', {}).get('name')
+                    
+                    if price_usd and market_name:
+                        prices.append(price_usd)
+                        exchanges.append(market_name)
+            
+            if len(prices) >= 2:
                 min_price = min(prices)
                 max_price = max(prices)
-                diff_percent = (max_price - min_price) / min_price * 100
-                min_exchange = exchanges[prices.index(min_price)]
-                max_exchange = exchanges[prices.index(max_price)]
+                diff_percent = ((max_price - min_price) / min_price) * 100
+                
+                # Находим индексы бирж
+                min_idx = prices.index(min_price)
+                max_idx = prices.index(max_price)
                 
                 arbs.append({
                     'Монета': coin_id.upper(),
                     'Мин. цена (USD)': round(min_price, 4),
                     'Макс. цена (USD)': round(max_price, 4),
                     'Разница (%)': round(diff_percent, 2),
-                    'Биржа мин.': min_exchange,
-                    'Биржа макс.': max_exchange
+                    'Купить на': exchanges[min_idx],
+                    'Продать на': exchanges[max_idx]
                 })
         except Exception as e:
-            st.warning(f"Ошибка для {coin_id}: {e}")
+            st.error(f"Ошибка получения данных для {coin_id}: {e}")
+        
+        progress_bar.progress((idx + 1) / len(top_coins))
     
+    progress_bar.empty()
     return pd.DataFrame(arbs)
 
-# Интерфейс Streamlit
-st.title('Скринер Арбитража Криптовалют')
-st.markdown('Сканирует разницы цен на CEX биржах через CoinGecko API. Обновляйте для свежих данных.')
-# Добавь слайдер для выбора интервала обновления
-refresh_interval = st.select_slider(
-    "Автообновление (секунды)",
+# --- ИНТЕРФЕЙС ---
+st.title('🚀 Скринер Арбитража Криптовалют (2025)')
+st.markdown('Сканирует разницы цен между биржами через CoinGecko API.')
+
+# Боковая панель управления
+st.sidebar.header("Настройки")
+refresh_interval = st.sidebar.select_slider(
+    "Автообновление (сек)",
     options=[0, 30, 60, 120, 300],
-    value=60,
-    help="0 = без автообновления"
+    value=60
 )
 
-if refresh_interval > 0:
-    # Правильное автообновление без sleep в главном потоке (используем компонент)
-import streamlit.components.v1 as components
+min_diff = st.sidebar.slider('Минимальный профит (%)', 0.0, 5.0, 0.5)
 
-# Функция для метатега автообновления
-def autorefresh(interval):
-    components.html(
-        f"<script>setTimeout(() => window.location.reload(), {interval * 1000});</script>",
-        height=0
-    )
-
-if refresh_interval > 0:
-    autorefresh(refresh_interval) 
-# Кнопка обновления
-if st.button('Обновить данные'):
+if st.sidebar.button('Очистить кэш и обновить'):
     st.cache_data.clear()
+    st.rerun()
 
-# Получение данных
+# Включаем автообновление, если выбрано > 0
+if refresh_interval > 0:
+    autorefresh(refresh_interval)
+    st.sidebar.info(f"Обновление каждые {refresh_interval} сек.")
+
+# Основной блок данных
 df = get_arbitrage_data()
 
 if not df.empty:
-    # Фильтр по минимальной разнице
-    min_diff = st.slider('Минимальная разница (%) для показа', 0.0, 10.0, 0.5)
+    # Фильтрация
     filtered_df = df[df['Разница (%)'] >= min_diff]
     
-    # Сортировка по разнице
-    st.dataframe(
-        filtered_df.sort_values('Разница (%)', ascending=False).style.background_gradient(cmap='viridis', subset=['Разница (%)']),
-        use_container_width=True
-    )
-    
-    # График (опционально)
-    if st.checkbox('Показать график разниц'):
-        st.bar_chart(filtered_df.set_index('Монета')['Разница (%)'])
+    if not filtered_df.empty:
+        st.subheader(f"Найдено связок с профитом > {min_diff}%")
+        
+        # Красивая таблица с градиентом
+        st.dataframe(
+            filtered_df.sort_values('Разница (%)', ascending=False)
+            .style.background_gradient(cmap='Greens', subset=['Разница (%)']),
+            use_container_width=True
+        )
+        
+        # Визуализация
+        if st.checkbox('Показать график'):
+            st.bar_chart(filtered_df.set_index('Монета')['Разница (%)'])
+    else:
+        st.warning(f"Связок с разницей более {min_diff}% не найдено.")
 else:
-    st.info('Нет данных. Попробуйте обновить или проверить API.')
+    st.info('Не удалось получить данные. Проверьте подключение к интернету.')
 
-# Автообновление каждые 60 сек
-# Автообновление каждые 60 секунд (правильный способ для Streamlit)
-placeholder = st.empty()
-with placeholder.container():
-    st.info("Данные обновляются автоматически каждые 60 секунд ⏳")
-
-# Это заставит Streamlit перезапускать скрипт периодически
-if st.session_state.get('auto_refresh', True):
-    # Правильное автообновление без sleep в главном потоке (используем компонент)
-import streamlit.components.v1 as components
-
-# Функция для метатега автообновления
-def autorefresh(interval):
-    components.html(
-        f"<script>setTimeout(() => window.location.reload(), {interval * 1000});</script>",
-        height=0
-    )
-
-if refresh_interval > 0:
-    autorefresh(refresh_interval)
+st.caption(f"Последнее обновление: {pd.Timestamp.now().strftime('%H:%M:%S')}")
