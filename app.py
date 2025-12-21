@@ -12,7 +12,18 @@ def autorefresh(interval_seconds):
     )
 
 # Список бирж и базовая валюта
-EXCHANGES = ['binance', 'bybit', 'kraken', 'gateio', 'huobi']
+EXCHANGES = [
+    'binance', 
+    'bybit', 
+    'kraken', 
+    'gateio', 
+    'huobi',
+    'okx',
+    'mexc',
+    'bingx',
+    'bitget',
+    'whitebit'
+]
 BASE_CURRENCY = 'USDT'
 
 @st.cache_data(ttl=30)
@@ -31,7 +42,9 @@ def get_data_optimized():
                 s: t['last'] for s, t in tickers.items() 
                 if s.endswith(f'/{BASE_CURRENCY}') and t is not None and 'last' in t and t['last'] is not None
             }
-        except:
+        except Exception as e:
+            # Можно добавить вывод ошибки в консоль для отладки
+            # print(f"Ошибка загрузки с {ex_id}: {e}") 
             st.sidebar.warning(f"Биржа {ex_id} недоступна")
             continue
 
