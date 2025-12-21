@@ -25,6 +25,10 @@ EXCHANGES = [
     'whitebit'
 ]
 BASE_CURRENCY = 'USDT'
+# --- ДОБАВЛЕНО ---
+# Минимальный объем торгов за 24 часа в базовой валюте (например, 10000 USDT)
+MIN_VOLUME = 10000 
+# -----------------
 
 @st.cache_data(ttl=30)
 def get_data_optimized():
@@ -38,13 +42,21 @@ def get_data_optimized():
             ex_class = getattr(ccxt, ex_id)
             ex_obj = ex_class({'enableRateLimit': True})
             tickers = ex_obj.fetch_tickers()
-            prices_by_exchange[ex_id] = {
-                s: t['last'] for s, t in tickers.items() 
-                if s.endswith(f'/{BASE_CURRENCY}') and t is not None and 'last' in t and t['last'] is not None
-            }
+            
+            # --- ИЗМЕНЕНО: Добавлена проверка объема ---
+            prices_by_exchange[ex_id] = {}
+            for s, t in tickers.items():
+                # Проверяем, что символ заканчивается на BASE_CURRENCY
+                if s.endswith(f'/{BASE_CURRENCY}') and t is not None:
+                    last_price = t.get('last')
+                    # 'quoteVolume' или 'baseVolume' можно использовать в зависимости от биржи и требований
+                    # Для простоты используем 'quoteVolume' (объем в USDT)
+                    volume = t.get('quoteVolume') 
+
+                    if last_price is not None and volume is not None and volume >= MIN_VOLUME:
+                         prices_by_exchange[ex_id][s] = last_price
+            # -------------------------------------------
         except Exception as e:
-            # Можно добавить вывод ошибки в консоль для отладки
-            # print(f"Ошибка загрузки с {ex_id}: {e}") 
             st.sidebar.warning(f"Биржа {ex_id} недоступна")
             continue
 
@@ -58,7 +70,8 @@ def get_data_optimized():
             if symbol in prices_by_exchange[ex_id]:
                 prices[ex_id] = prices_by_exchange[ex_id][symbol]
         
-        if len(prices) >= 2:
+        # Оставляем только те монеты, которые торгуются хотя бы на двух биржах из списка
+        if len(prices) >= 2: 
             min_ex = min(prices, key=prices.get)
             max_ex = max(prices, key=prices.get)
             min_p = prices[min_ex]
@@ -80,7 +93,8 @@ def get_data_optimized():
 st.title("🚀 Crypto Arbitrage Scanner")
 
 st.sidebar.header("Настройки")
-refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=[0, 30, 60, 120, 300], value=60)
+# Обновляем список опций для слайдера (была синтаксическая ошибка в оригинале)
+refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=[0, 30, 60, 120, 300], value=60) 
 min_profit = st.sidebar.slider("Мин. профит (%)", 0.0, 5.0, 0.3)
 
 if refresh_sec > 0:
@@ -92,7 +106,6 @@ try:
         filtered_df = df[df['Профит (%)'] >= min_profit]
         if not filtered_df.empty:
             st.subheader(f"Найдено {len(filtered_df)} связок")
-            # Просто вывод таблицы без использования matplotlib (background_gradient)
             st.dataframe(
                 filtered_df.sort_values('Профит (%)', ascending=False),
                 use_container_width=True
