@@ -27,7 +27,7 @@ EXCHANGES = [
 BASE_CURRENCY = 'USDT'
 # --- ДОБАВЛЕНО ---
 # Минимальный объем торгов за 24 часа в базовой валюте (например, 10000 USDT)
-MIN_VOLUME = 10000 
+MIN_VOLUME = 100000 
 # -----------------
 
 @st.cache_data(ttl=30)
