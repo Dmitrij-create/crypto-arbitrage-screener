@@ -3,61 +3,47 @@ import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Arbitrage Scanner", layout="wide")
+st.set_page_config(page_title="Futures Arbitrage Scanner", layout="wide")
 
 def autorefresh(interval_seconds):
     components.html(
-        f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
+        f"""
+        <script>
+        setTimeout(function() {{
+            window.parent.location.reload();
+        }}, {interval_seconds * 1000});
+        </script>
+        """,
         height=0,
     )
 
-# Список бирж и базовая валюта
-EXCHANGES = [
-    'binance', 
-    'bybit', 
-    'kraken', 
-    'gateio', 
-    'huobi',
-    'okx',
-    'mexc',
-    'bingx',
-    'bitget',
-    'whitebit'
-]
+# Список бирж (важно: не все биржи поддерживают фьючерсы одинаково)
+# Binance, Bybit, Huobi - отличные варианты для фьючерсов
+EXCHANGES = ['binance', 'bybit', 'huobi']
 BASE_CURRENCY = 'USDT'
-# --- ДОБАВЛЕНО ---
-# Минимальный объем торгов за 24 часа в базовой валюте (например, 10000 USDT)
-MIN_VOLUME = 100000 
-# -----------------
 
 @st.cache_data(ttl=30)
-def get_data_optimized():
+def get_futures_data_optimized():
     data = []
     prices_by_exchange = {}
     
-    st.sidebar.info("Загрузка цен...")
+    st.sidebar.info("Загрузка цен фьючерсов...")
 
     for ex_id in EXCHANGES:
         try:
             ex_class = getattr(ccxt, ex_id)
-            ex_obj = ex_class({'enableRateLimit': True})
-            tickers = ex_obj.fetch_tickers()
+            # В ccxt нужно указать, что мы хотим работать с 'future' или 'swap'
+            ex_obj = ex_class({'enableRateLimit': True, 'options': {'defaultType': 'swap'}}) 
             
-            # --- ИЗМЕНЕНО: Добавлена проверка объема ---
-            prices_by_exchange[ex_id] = {}
-            for s, t in tickers.items():
-                # Проверяем, что символ заканчивается на BASE_CURRENCY
-                if s.endswith(f'/{BASE_CURRENCY}') and t is not None:
-                    last_price = t.get('last')
-                    # 'quoteVolume' или 'baseVolume' можно использовать в зависимости от биржи и требований
-                    # Для простоты используем 'quoteVolume' (объем в USDT)
-                    volume = t.get('quoteVolume') 
-
-                    if last_price is not None and volume is not None and volume >= MIN_VOLUME:
-                         prices_by_exchange[ex_id][s] = last_price
-            # -------------------------------------------
+            tickers = ex_obj.fetch_tickers()
+            prices_by_exchange[ex_id] = {
+                s: t['last'] for s, t in tickers.items() 
+                # Фильтруем только бессрочные USDT-фьючерсы (примерно)
+                if f'/{BASE_CURRENCY}' in s and (':USDT' in s or ':USD' in s) 
+                and t is not None and 'last' in t and t['last'] is not None
+            }
         except Exception as e:
-            st.sidebar.warning(f"Биржа {ex_id} недоступна")
+            st.sidebar.warning(f"Ошибка загрузки фьючерсов с {ex_id}: {e}")
             continue
 
     all_symbols = set()
@@ -70,8 +56,7 @@ def get_data_optimized():
             if symbol in prices_by_exchange[ex_id]:
                 prices[ex_id] = prices_by_exchange[ex_id][symbol]
         
-        # Оставляем только те монеты, которые торгуются хотя бы на двух биржах из списка
-        if len(prices) >= 2: 
+        if len(prices) >= 2:
             min_ex = min(prices, key=prices.get)
             max_ex = max(prices, key=prices.get)
             min_p = prices[min_ex]
@@ -79,31 +64,34 @@ def get_data_optimized():
             
             if min_p > 0:
                 diff = ((max_p - min_p) / min_p) * 100
+                
                 if diff > 0:
                     data.append({
-                        'Монета': symbol,
+                        'Фьючерс': symbol,
                         'Купить на': min_ex.upper(),
                         'Цена покупки': min_p,
                         'Продать на': max_ex.upper(),
                         'Цена продажи': max_p,
                         'Профит (%)': round(diff, 3)
                     })
+
     return pd.DataFrame(data)
 
-st.title("🚀 Crypto Arbitrage Scanner")
+# --- ИНТЕРФЕЙС ---
+st.title("🚀 Futures Arbitrage Scanner")
 
 st.sidebar.header("Настройки")
-# Обновляем список опций для слайдера (была синтаксическая ошибка в оригинале)
-refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=[0, 30, 60, 120, 300], value=60) 
-min_profit = st.sidebar.slider("Мин. профит (%)", 0.0, 5.0, 0.3)
+refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=, value=60)
+min_profit = st.sidebar.slider("Мин. профит (%)", 0.0, 5.0, 0.1)
 
 if refresh_sec > 0:
     autorefresh(refresh_sec)
 
 try:
-    df = get_data_optimized() 
+    df = get_futures_data_optimized() 
     if not df.empty:
         filtered_df = df[df['Профит (%)'] >= min_profit]
+        
         if not filtered_df.empty:
             st.subheader(f"Найдено {len(filtered_df)} связок")
             st.dataframe(
@@ -113,7 +101,7 @@ try:
         else:
             st.info(f"Нет связок с профитом выше {min_profit}%")
     else:
-        st.warning("Данные не получены.")
+        st.warning("Данные не получены. Проверьте настройки бирж.")
 except Exception as e:
     st.error(f"Ошибка приложения: {e}")
 
