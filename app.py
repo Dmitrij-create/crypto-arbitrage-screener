@@ -107,7 +107,7 @@ st.sidebar.header("Настройки")
 # ИСПРАВЛЕННЫЙ СЛАЙДЕР (добавлены опции)
 refresh_sec = st.sidebar.select_slider(
     "Автообновление (сек)", 
-    options=[0, 10, 30, 60, 300], 
+    options=[0, 10, 30, 60, 120, 300], 
     value=60
 )
 
