@@ -108,7 +108,7 @@ st.sidebar.header("Настройки")
 refresh_sec = st.sidebar.select_slider(
     "Автообновление (сек)", 
     options=[0, 10, 30, 60, 300], 
-    value=30
+    value=60
 )
 
 min_profit = st.sidebar.slider("Минимальный профит (%)", 0.0, 3.0, 0.1)
