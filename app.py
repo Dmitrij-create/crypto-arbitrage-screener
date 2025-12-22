@@ -17,8 +17,7 @@ def autorefresh(interval_seconds):
         height=0,
     )
 
-# Список бирж (важно: не все биржи поддерживают фьючерсы одинаково)
-# Binance, Bybit, Huobi - отличные варианты для фьючерсов
+# Список бирж (Binance, Bybit и Huobi лучше всего подходят для фьючерсов)
 EXCHANGES = ['binance', 'bybit', 'huobi']
 BASE_CURRENCY = 'USDT'
 
@@ -32,20 +31,22 @@ def get_futures_data_optimized():
     for ex_id in EXCHANGES:
         try:
             ex_class = getattr(ccxt, ex_id)
-            # В ccxt нужно указать, что мы хотим работать с 'future' или 'swap'
+            # Настройка на работу с бессрочными фьючерсами (swap)
             ex_obj = ex_class({'enableRateLimit': True, 'options': {'defaultType': 'swap'}}) 
             
             tickers = ex_obj.fetch_tickers()
+            
+            # Фильтруем только пары к USDT/USD
             prices_by_exchange[ex_id] = {
                 s: t['last'] for s, t in tickers.items() 
-                # Фильтруем только бессрочные USDT-фьючерсы (примерно)
-                if f'/{BASE_CURRENCY}' in s and (':USDT' in s or ':USD' in s) 
+                if (f'/{BASE_CURRENCY}' in s or f':{BASE_CURRENCY}' in s)
                 and t is not None and 'last' in t and t['last'] is not None
             }
         except Exception as e:
-            st.sidebar.warning(f"Ошибка загрузки фьючерсов с {ex_id}: {e}")
+            st.sidebar.warning(f"Биржа {ex_id} недоступна: {str(e)[:50]}")
             continue
 
+    # Собираем все уникальные символы
     all_symbols = set()
     for ex_id in prices_by_exchange:
         all_symbols.update(prices_by_exchange[ex_id].keys())
@@ -56,6 +57,7 @@ def get_futures_data_optimized():
             if symbol in prices_by_exchange[ex_id]:
                 prices[ex_id] = prices_by_exchange[ex_id][symbol]
         
+        # Если инструмент есть на 2 и более биржах
         if len(prices) >= 2:
             min_ex = min(prices, key=prices.get)
             max_ex = max(prices, key=prices.get)
@@ -65,6 +67,7 @@ def get_futures_data_optimized():
             if min_p > 0:
                 diff = ((max_p - min_p) / min_p) * 100
                 
+                # Сохраняем результат
                 if diff > 0:
                     data.append({
                         'Фьючерс': symbol,
@@ -81,7 +84,14 @@ def get_futures_data_optimized():
 st.title("🚀 Futures Arbitrage Scanner")
 
 st.sidebar.header("Настройки")
-refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=, value=60)
+
+# ИСПРАВЛЕНО: Добавлен список секунд в options
+refresh_sec = st.sidebar.select_slider(
+    "Обновление (сек)", 
+    options=[0, 10, 30, 60, 300], 
+    value=60
+)
+
 min_profit = st.sidebar.slider("Мин. профит (%)", 0.0, 5.0, 0.1)
 
 if refresh_sec > 0:
@@ -90,19 +100,22 @@ if refresh_sec > 0:
 try:
     df = get_futures_data_optimized() 
     if not df.empty:
+        # Фильтрация по профиту
         filtered_df = df[df['Профит (%)'] >= min_profit]
         
         if not filtered_df.empty:
-            st.subheader(f"Найдено {len(filtered_df)} связок")
+            st.subheader(f"Найдено {len(filtered_df)} арбитражных окон")
+            
+            # Сортировка по прибыли
             st.dataframe(
                 filtered_df.sort_values('Профит (%)', ascending=False),
                 use_container_width=True
             )
         else:
-            st.info(f"Нет связок с профитом выше {min_profit}%")
+            st.info(f"Связок с доходностью выше {min_profit}% не найдено.")
     else:
-        st.warning("Данные не получены. Проверьте настройки бирж.")
+        st.warning("Данные по фьючерсам не получены. Попробуйте обновить.")
 except Exception as e:
     st.error(f"Ошибка приложения: {e}")
 
-st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}")
+st.caption(f"Последнее обновление: {pd.Timestamp.now().strftime('%H:%M:%S')}")
