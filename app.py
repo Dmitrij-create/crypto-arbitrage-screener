@@ -111,7 +111,7 @@ refresh_sec = st.sidebar.select_slider(
     value=60
 )
 
-min_profit = st.sidebar.slider("Минимальный профит (%)", 0.0, 3.0, 0.1)
+min_profit = st.sidebar.slider("Минимальный профит (%)", 0.0, 3.0, 0.8)
 
 if refresh_sec > 0:
     autorefresh(refresh_sec)
