@@ -12,7 +12,7 @@ def autorefresh(interval_seconds):
     )
 
 # Биржи (Binance часто блокирует облака, добавим больше альтернатив)
-EXCHANGES = ['binance', 'bybit', 'huobi', 'gateio', 'okx']
+EXCHANGES = ['binance', 'bybit', 'huobi', 'gateio', 'okx', 'mexc', 'bingx', 'bitget', 'whitebit']
 BASE_CURRENCY = 'USDT'
 
 @st.cache_data(ttl=30)
