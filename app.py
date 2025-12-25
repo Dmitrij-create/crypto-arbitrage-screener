@@ -20,7 +20,7 @@ def autorefresh(interval_seconds):
     )
 
 # Список бирж (2025)
-EXCHANGES = ['binance', 'bybit', 'huobi', 'gateio', 'okx', 'mexc', 'bingx', 'bitget']
+EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
 BASE_CURRENCY = 'USDT'
 
 @st.cache_data(ttl=10) # Кэш 10 секунд для актуальности цен
