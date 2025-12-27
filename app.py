@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit.components.v1 as components
 
 # Настройка страницы
-st.set_page_config(page_title="Futures Bid/Ask Arbitrage", layout="wide")
+st.set_page_config(page_title="Futures Bid/Ask ", layout="wide")
 
 # Функция автообновления через JS
 def autorefresh(interval_seconds):
