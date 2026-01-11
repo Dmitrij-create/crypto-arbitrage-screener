@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit.components.v1 as components
 
 # Настройка страницы
-st.set_page_config(page_title="Futures Bid/Ask ", layout="wide")
+st.set_page_config(page_title="Futures Bid/Ask Screener", layout="wide")
 
 # Функция автообновления через JS
 def autorefresh(interval_seconds):
@@ -22,6 +22,9 @@ def autorefresh(interval_seconds):
 # Список бирж (2025)
 EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
 BASE_CURRENCY = 'USDT'
+
+# <<< НОВОЕ: Добавляем глобальную переменную для максимального внутреннего спреда
+MAX_INTERNAL_SPREAD_PERCENT = 0.5 # Максимальный спред Bid/Ask внутри одной биржи (0.5%)
 
 @st.cache_data(ttl=10) # Кэш 10 секунд для актуальности цен
 def get_bid_ask_data():
@@ -43,16 +46,26 @@ def get_bid_ask_data():
             for s, t in tickers.items():
                 # Проверяем пару и наличие цен покупки/продажи
                 if f'{BASE_CURRENCY}' in s and t.get('bid') and t.get('ask'):
-                    # Нормализуем название (убираем :USDT)
-                    base_symbol = s.split(':')[0]
-                    cleaned_data[base_symbol] = {
-                        'bid': t['bid'],
-                        'ask': t['ask']
-                    }
+                    bid = t['bid']
+                    ask = t['ask']
+                    
+                    # <<< НОВОЕ: Проверка внутреннего спреда
+                    if bid and ask and bid > 0:
+                        internal_spread = ((ask - bid) / bid) * 100
+                        
+                        if internal_spread <= MAX_INTERNAL_SPREAD_PERCENT:
+                            # Нормализуем название (убираем :USDT)
+                            base_symbol = s.split(':')[0]
+                            cleaned_data[base_symbol] = {
+                                'bid': bid,
+                                'ask': ask
+                            }
+                        # else:
+                            # print(f"Пропущено {s} на {ex_id}: внутренний спред {internal_spread:.2f}% > {MAX_INTERNAL_SPREAD_PERCENT}%")
             
             if cleaned_data:
                 prices_by_exchange[ex_id] = cleaned_data
-                st.sidebar.success(f"{ex_id.upper()}: OK ({len(cleaned_data)} пар)")
+                st.sidebar.success(f"{ex_id.upper()}: OK ({len(cleaned_data)} пар прошли фильтр)") # <<< ИЗМЕНЕНО
         except Exception as e:
             err_msg = str(e)
             if "403" in err_msg:
@@ -100,7 +113,7 @@ def get_bid_ask_data():
 
 # --- ИНТЕРФЕЙС ---
 st.title("📊 Фьючерсный Арбитраж: Bid / Ask")
-st.markdown("Скринер сравнивает цену **покупки (Ask)** на одной бирже с ценой **продажи (Bid)** на другой.")
+st.markdown(f"Скринер сравнивает цену **покупки (Ask)** на одной бирже с ценой **продажи (Bid)** на другой. **Фильтр внутреннего спреда: {MAX_INTERNAL_SPREAD_PERCENT}%**") # <<< ИЗМЕНЕНО
 
 st.sidebar.header("Настройки")
 
@@ -111,7 +124,7 @@ refresh_sec = st.sidebar.select_slider(
     value=60
 )
 
-min_profit = st.sidebar.slider("Минимальный профит (%)", 0.0, 3.0, 0.8)
+min_profit = st.sidebar.slider("Минимальный межбиржевой профит (%)", 0.0, 3.0, 0.8) # <<< ИЗМЕНЕНО название
 
 if refresh_sec > 0:
     autorefresh(refresh_sec)
