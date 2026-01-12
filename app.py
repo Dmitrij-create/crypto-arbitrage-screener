@@ -79,7 +79,7 @@ max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
 # Выносим список в отдельную переменную, чтобы избежать ошибки SyntaxError
-refresh_options = [10, 30, 60, 300, 600]
+refresh_options =[10, 30, 60, 300, 600]
 refresh_sec = st.sidebar.select_slider(
     "Обновление (сек)", 
     options=refresh_options, 
