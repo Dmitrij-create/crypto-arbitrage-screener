@@ -66,7 +66,7 @@ def get_data(max_spread, min_vol):
 st.sidebar.header("⚙️ Настройки фильтров")
 max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
-refresh = st.sidebar.select_slider("Обновление (сек)", options=[10, 30, 60], value=30)
+refresh = st.sidebar.select_slider("Обновление (сек)", options=[10, 30, 60], value=60)
 min_p = st.sidebar.slider("Мин. профит для таблицы (%)", 0.0, 3.0, 0.8)
 
 st.sidebar.header("🔔 Звуковой сигнал (Алерт)")
