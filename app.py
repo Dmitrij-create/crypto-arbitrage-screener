@@ -2,21 +2,22 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
+import time
 
 # Инициализация состояний
 if 'alerts' not in st.session_state:
     st.session_state['alerts'] = []
 if 'triggered_alerts' not in st.session_state:
     st.session_state['triggered_alerts'] = {}
+if 'last_rerun' not in st.session_state:
+    st.session_state.last_rerun = time.time()
 
 # Настройка страницы
 st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
 
 # ФУНКЦИЯ ЗВУКА
 def play_sound_html():
-    # Надёжная бесплатная короткая ссылка (digital clock buzzer ~8 сек)
     sound_url = "https://assets.mixkit.co/sfx/preview/mixkit-digital-clock-digital-alarm-buzzer-989.mp3"
-    
     sound_html = f"""
         <audio autoplay style="display:none;">
             <source src="{sound_url}" type="audio/mpeg">
@@ -24,17 +25,6 @@ def play_sound_html():
         </audio>
     """
     components.html(sound_html, height=0)
-
-# Автообновление страницы
-def autorefresh(interval_seconds):
-    components.html(
-        f"""
-        <script>
-            setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});
-        </script>
-        """,
-        height=0,
-    )
 
 # Список бирж и базовая валюта
 EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
@@ -49,7 +39,7 @@ def get_data(max_spread_pct, min_volume_usdt):
         try:
             ex = getattr(ccxt, ex_id)({
                 'enableRateLimit': True,
-                'options': {'defaultType': 'future'}  # 'swap' тоже можно, но 'future' чаще работает
+                'options': {'defaultType': 'future'}
             })
             tickers = ex.fetch_tickers()
 
@@ -64,7 +54,6 @@ def get_data(max_spread_pct, min_volume_usdt):
                 if bid and ask and bid > 0 and vol >= min_volume_usdt:
                     spread_pct = ((ask - bid) / bid) * 100
                     if spread_pct <= max_spread_pct:
-                        # Улучшенная очистка символа
                         clean_sym = symbol.split('/')[0].split(':')[0].replace(f":{BASE_CURRENCY}", "")
                         cleaned[clean_sym] = {'bid': bid, 'ask': ask, 'vol': vol}
 
@@ -72,10 +61,8 @@ def get_data(max_spread_pct, min_volume_usdt):
                 prices_by_ex[ex_id] = cleaned
 
         except Exception as e:
-            # st.warning(f"Ошибка на {ex_id}: {e}")  # можно раскомментировать для отладки
             continue
 
-    # Собираем все уникальные символы
     all_symbols = set()
     for prices in prices_by_ex.values():
         all_symbols.update(prices.keys())
@@ -88,8 +75,8 @@ def get_data(max_spread_pct, min_volume_usdt):
         bids = {ex: prices_by_ex[ex][sym]['bid'] for ex in exchanges_with_sym}
         asks = {ex: prices_by_ex[ex][sym]['ask'] for ex in exchanges_with_sym}
 
-        buy_ex = min(asks, key=asks.get)     # самая низкая цена покупки
-        sell_ex = max(bids, key=bids.get)    # самая высокая цена продажи
+        buy_ex = min(asks, key=asks.get)
+        sell_ex = max(bids, key=bids.get)
 
         p_buy = asks[buy_ex]
         p_sell = bids[sell_ex]
@@ -113,7 +100,7 @@ st.sidebar.header("⚙️ Настройки")
 max_spread = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.5, 0.35, 0.05)
 min_vol = st.sidebar.number_input("Мин. объём (USDT)", 0, 20_000_000, 80_000, step=10000)
 
-refresh_options = [10, 20, 30, 45, 60, 120, 300]
+# ←────── Вот исправленный слайдер (один!) ──────
 refresh = st.select_slider(
     "Обновление (сек)",
     options=[10, 15, 20, 30, 45, 60, 90, 120, 180, 300],
@@ -166,7 +153,11 @@ if st.session_state.alerts:
 
 # ── ОСНОВНАЯ ЛОГИКА ─────────────────────────────────────────
 
-autorefresh(refresh_sec)
+# Авто-обновление через st.rerun()
+now = time.time()
+if now - st.session_state.last_rerun >= refresh:
+    st.session_state.last_rerun = now
+    st.rerun()
 
 df = get_data(max_spread, min_vol)
 
@@ -192,7 +183,6 @@ if not df.empty:
                     play_sound_html()
                     st.toast(f"🔔 СИГНАЛ: {alert['symbol']} → {round(current_profit,2)}%", icon="🚨")
             else:
-                # Убираем метку, если профит упал ниже
                 st.session_state.triggered_alerts.pop(key, None)
 
     def highlight_row(row):
