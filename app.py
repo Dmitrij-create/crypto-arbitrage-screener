@@ -18,12 +18,10 @@ st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
 # ФУНКЦИЯ ЗВУКА
 def play_sound_html():
     sound_url = "https://assets.mixkit.co/sfx/preview/mixkit-digital-clock-digital-alarm-buzzer-989.mp3"
-    sound_html = f"""
-        <audio autoplay style="display:none;">
-            <source src="{sound_url}" type="audio/mpeg">
-            Your browser does not support the audio element.
-        </audio>
-    """
+    sound_html = f"""<audio autoplay style="display:none;">
+<source src="{sound_url}" type="audio/mpeg">
+Your browser does not support the audio element.
+</audio>"""
     components.html(sound_html, height=0)
 
 # Список бирж и базовая валюта
@@ -92,7 +90,6 @@ def get_data(max_spread_pct, min_volume_usdt):
 
     return pd.DataFrame(data)
 
-
 # ── ИНТЕРФЕЙС ────────────────────────────────────────────────
 
 st.sidebar.header("⚙️ Настройки")
@@ -100,7 +97,6 @@ st.sidebar.header("⚙️ Настройки")
 max_spread = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.5, 0.35, 0.05)
 min_vol = st.sidebar.number_input("Мин. объём (USDT)", 0, 20_000_000, 80_000, step=10000)
 
-# ←────── Вот исправленный слайдер (один!) ──────
 refresh = st.select_slider(
     "Обновление (сек)",
     options=[10, 15, 20, 30, 45, 60, 90, 120, 180, 300],
