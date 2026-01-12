@@ -79,11 +79,7 @@ max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
 # СТРОКА 76: ИСПРАВЛЕН СПИСОК OPTIONS
-refresh_sec = st.sidebar.select_slider(
-    "Обновление (сек)", 
-    options=[10, 30, 60, 300], 
-    value=30
-)
+refresh = st.sidebar.select_slider("Обновление (сек)", options=[0, 10, 30, 60, 300], value=60)
 
 min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.5)
 
