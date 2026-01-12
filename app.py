@@ -82,17 +82,17 @@ def get_data(max_spread, min_vol):
 st.title("📊 Фьючерсный Арбитраж: Bid / Ask")
 
 st.sidebar.header("⚙️ Настройки фильтров")
-max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
+max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
-refresh = st.sidebar.select_slider("Обновление (сек)", options=[0, 10, 30, 60, 300], value=30)
-min_p = st.sidebar.slider("Мин. профит для таблицы (%)", 0.0, 3.0, 0.5)
+refresh = st.sidebar.select_slider("Обновление (сек)", options=[0, 10, 30, 60, 300], value=60)
+min_p = st.sidebar.slider("Мин. профит для таблицы (%)", 0.0, 3.0, 0.8)
 
 st.sidebar.header("🔔 Звуковой сигнал (Алерт)")
 alert_active = st.sidebar.checkbox("Включить звук оповещения")
 target_sym = st.sidebar.text_input("Монета (напр. BTC)", "BTC").upper()
 target_buy = st.sidebar.selectbox("Где купить", EXCHANGES, index=0)
 target_sell = st.sidebar.selectbox("Где продать", EXCHANGES, index=1)
-target_p = st.sidebar.slider("Сигнал при профите (%)", 0.0, 5.0, 1.0)
+target_p = st.sidebar.slider("Сигнал при профите (%)", 0.0, 10.0, 1.0)
 
 # Активация автообновления
 autorefresh(refresh)
