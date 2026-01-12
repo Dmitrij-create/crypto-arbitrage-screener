@@ -130,7 +130,7 @@ st.sidebar.header("Настройки")
 
 max_internal_spread = st.sidebar.slider(
     "Макс. внутр. спред Bid/Ask (%)", 
-    0.0, 1.0, 0.3, step=0.05
+    0.0, 1.0, 0.5, step=0.05
 )
 
 min_volume = st.sidebar.slider(
