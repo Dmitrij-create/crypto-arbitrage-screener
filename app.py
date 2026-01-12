@@ -3,7 +3,7 @@ import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
 
-# Инициализация состояний (чтобы алерты не пропадали при обновлении страницы)
+# Инициализация состояний
 if 'alerts' not in st.session_state:
     st.session_state['alerts'] = []
 if 'triggered_alerts' not in st.session_state:
@@ -12,7 +12,7 @@ if 'triggered_alerts' not in st.session_state:
 # Настройка страницы
 st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
 
-# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5
+# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5 (самый стабильный метод)
 def play_sound_html():
     sound_url = "www.soundjay.com"
     sound_html = f"""
@@ -44,10 +44,8 @@ def get_data(max_spread, min_vol):
             cleaned = {}
             for s, t in tickers.items():
                 vol = t.get('quoteVolume') or 0
-                # Проверка пары, цен и объема
                 if f'{BASE_CURRENCY}' in s and t.get('bid') and t.get('ask') and vol >= min_vol:
                     bid, ask = t['bid'], t['ask']
-                    # Фильтр внутреннего спреда стакана
                     if bid > 0 and ((ask - bid) / bid) * 100 <= max_spread:
                         sym = s.replace(f':{BASE_CURRENCY}', '').replace(f'/{BASE_CURRENCY}', '')
                         cleaned[sym] = {'bid': bid, 'ask': ask, 'vol': vol}
@@ -56,7 +54,6 @@ def get_data(max_spread, min_vol):
         except: 
             continue
 
-    # Сравнение цен между биржами
     all_syms = set().union(*(ex.keys() for ex in prices_by_ex.values()))
     for sym in all_syms:
         ex_with_sym = [ex for ex in prices_by_ex if sym in prices_by_ex[ex]]
@@ -80,7 +77,7 @@ st.sidebar.header("⚙️ Настройки")
 max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
-# ИСПРАВЛЕНО: Добавлены значения в options
+# ИСПРАВЛЕНО: Теперь список options заполнен
 refresh_sec = st.sidebar.select_slider(
     "Обновление (сек)", 
     options=[10, 30, 60, 120, 300], 
@@ -90,7 +87,7 @@ refresh_sec = st.sidebar.select_slider(
 min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.5)
 
 st.sidebar.header("🔔 Управление Алертами")
-in_sym = st.sidebar.text_input("Монета (напр. ETH)", value="ETH").upper()
+in_sym = st.sidebar.text_input("Монета (напр. BTC)", value="BTC").upper()
 in_buy = st.sidebar.selectbox("Купить на", EXCHANGES, index=0)
 in_sell = st.sidebar.selectbox("Продать на", EXCHANGES, index=1)
 in_profit = st.sidebar.slider("Целевой профит (%)", 0.0, 5.0, 1.0, step=0.1)
@@ -100,7 +97,6 @@ if st.sidebar.button("➕ Добавить алерт"):
     if alert not in st.session_state.alerts:
         st.session_state.alerts.append(alert)
 
-# Список текущих алертов с возможностью удаления
 if st.session_state.alerts:
     st.sidebar.subheader("Активные Алерты:")
     for i, a in enumerate(st.session_state.alerts):
@@ -117,7 +113,6 @@ df = get_data(max_s, min_v)
 triggered_now_keys = set()
 
 if not df.empty:
-    # Логика проверки алертов
     for alert in st.session_state.alerts:
         match = df[
             (df['Инструмент'] == alert['symbol']) & 
@@ -126,10 +121,9 @@ if not df.empty:
         ]
         
         if not match.empty:
-            cur_p = match['Профит (%)'].iloc[0]
+            cur_p = match['Профит (%)'].values[0]
             alert_key = f"{alert['symbol']}_{alert['buy']}_{alert['sell']}_{alert['target']}"
             
-            # Если профит достиг цели
             if round(cur_p, 2) >= alert['target']:
                 triggered_now_keys.add(f"{alert['symbol']}|{alert['buy']}|{alert['sell']}")
                 if alert_key not in st.session_state.triggered_alerts:
@@ -137,11 +131,9 @@ if not df.empty:
                     play_sound_html()
                     st.toast(f"🔔 СИГНАЛ: {alert['symbol']} {cur_p}%", icon="🎯")
             else:
-                # Сброс, чтобы сработало при следующем пересечении
                 if alert_key in st.session_state.triggered_alerts:
                     del st.session_state.triggered_alerts[alert_key]
 
-    # Функция подсветки строк
     def highlight_rows(row):
         key = f"{row['Инструмент']}|{row['КУПИТЬ']}|{row['ПРОДАТЬ']}"
         if key in triggered_now_keys:
@@ -154,8 +146,8 @@ if not df.empty:
     if not display_df.empty:
         st.dataframe(display_df.style.apply(highlight_rows, axis=1), use_container_width=True)
     else:
-        st.info("Нет связок выше установленного порога профита.")
+        st.info("Нет связок выше порога.")
 else:
-    st.warning("Данные не получены. Проверьте API или IP.")
+    st.warning("Данные не получены.")
 
-st.caption(f"Последнее обновление: {pd.Timestamp.now().strftime('%H:%M:%S')}. (Не забудьте кликнуть по странице для активации звука)")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Не забудьте кликнуть по странице!")
