@@ -74,7 +74,7 @@ alert_active = st.sidebar.checkbox("Включить звук")
 target_sym = st.sidebar.text_input("Монета (напр. BTC)", "BTC").upper()
 target_buy = st.sidebar.selectbox("Где купить", EXCHANGES, index=0)
 target_sell = st.sidebar.selectbox("Где продать", EXCHANGES, index=1)
-target_p = st.sidebar.slider("Сигнал при профите (%)", 0.0, 5.0, 1.0)
+target_p = st.sidebar.slider("Сигнал при профите (%)", 0.0, 10.0, 1.0)
 
 autorefresh(refresh)
 df = get_data(max_s, min_v)
