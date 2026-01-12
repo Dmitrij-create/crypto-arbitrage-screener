@@ -114,7 +114,11 @@ max_spread = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.5,
 min_vol = st.sidebar.number_input("Мин. объём (USDT)", 0, 20_000_000, 80_000, step=10000)
 
 refresh_options = [10, 20, 30, 45, 60, 120, 300]
-refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=30)
+refresh = st.select_slider(
+    "Обновление (сек)",
+    options=[10, 15, 20, 30, 45, 60, 90, 120, 180, 300],
+    value=30
+)
 
 min_profit_filter = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 8.0, 0.4, 0.1)
 
