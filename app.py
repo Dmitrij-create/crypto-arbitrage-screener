@@ -12,7 +12,7 @@ if 'triggered_alerts' not in st.session_state:
 # Настройка страницы
 st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
 
-# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5 (самый стабильный метод)
+# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5
 def play_sound_html():
     sound_url = "www.soundjay.com"
     sound_html = f"""
@@ -77,10 +77,10 @@ st.sidebar.header("⚙️ Настройки")
 max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
-# ИСПРАВЛЕНО: Теперь список options заполнен
+# ВОТ ЗДЕСЬ БЫЛА ОШИБКА. ИСПРАВЛЕНО: добавлен список [10, 30, 60, 300]
 refresh_sec = st.sidebar.select_slider(
     "Обновление (сек)", 
-    options=[10, 30, 60, 120, 300], 
+    options=[10, 30, 60, 300], 
     value=30
 )
 
