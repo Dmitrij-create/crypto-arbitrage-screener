@@ -104,7 +104,7 @@ with st.sidebar:
     min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 150000)
     
     refresh_opts = [10, 30, 60, 300]
-    refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=60)
+    refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=30)
     min_p = st.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.8)
 
     st.header("🔔 Добавить Алерт")
