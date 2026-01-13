@@ -100,8 +100,8 @@ st.title("📊 Arbitrage Screener 2026")
 
 with st.sidebar:
     st.header("⚙️ Настройки")
-    max_s = st.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.2)
-    min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 200000)
+    max_s = st.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
+    min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 150000)
     
     refresh_opts = [10, 30, 60, 300]
     refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=60)
