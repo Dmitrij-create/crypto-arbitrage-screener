@@ -82,16 +82,16 @@ min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000
 refresh_sec = st.sidebar.select_slider(
     "Обновление (сек)", 
     options=[10, 30, 60, 300], 
-    value=30
+    value=60
 )
 
-min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.5)
+min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.8)
 
 st.sidebar.header("🔔 Управление Алертами")
 in_sym = st.sidebar.text_input("Монета (напр. BTC)", value="BTC").upper()
 in_buy = st.sidebar.selectbox("Купить на", EXCHANGES, index=0)
 in_sell = st.sidebar.selectbox("Продать на", EXCHANGES, index=1)
-in_profit = st.sidebar.slider("Целевой профит (%)", 0.0, 5.0, 1.0, step=0.1)
+in_profit = st.sidebar.slider("Целевой профит (%)", 0.0, 10.0, 1.0, step=0.1)
 
 if st.sidebar.button("➕ Добавить алерт"):
     alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
