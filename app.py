@@ -3,15 +3,13 @@ import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
 
-# --- Инициализация состояний ---
+# --- Инициализация состояний (выполняется один раз при запуске) ---
 if 'alerts' not in st.session_state:
     st.session_state['alerts'] = []
-if 'triggered_alerts' not in st.session_state:
-    st.session_state['triggered_alerts'] = {}
 
 st.set_page_config(page_title="Arbitrage Screener 2026", layout="wide")
 
-# Функция звука из вашего старого рабочего кода (надежная генерация JS)
+# Функция звука из вашего старого рабочего кода
 def play_sound():
     sound_js = """
         <script>
@@ -78,37 +76,45 @@ st.title("📊 Arbitrage Screener 2026")
 
 with st.sidebar:
     st.header("⚙️ Настройки")
-    max_s = st.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
+    max_s = st.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
     min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
     
-    # Исправленный слайдер (без SyntaxError)
     refresh_opts = [10, 30, 60, 300]
     refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=60)
     min_p = st.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.8)
 
-    st.header("🔔 Мульти-Алерты")
-    in_sym = st.text_input("Монета", value="BTC").upper()
-    in_buy = st.selectbox("Купить на", EXCHANGES, index=0)
-    in_sell = st.selectbox("Продать на", EXCHANGES, index=1)
-    in_profit = st.slider("Целевой профит (%)", 0.0, 10.0, 1.0, step=0.1)
-    
-    if st.button("➕ Добавить"):
-        alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
-        if alert not in st.session_state.alerts:
-            st.session_state.alerts.append(alert)
+    st.header("🔔 Добавить Алерт")
+    # Используем форму, чтобы ввод не сбрасывался преждевременно
+    with st.form("alert_form", clear_on_submit=True):
+        in_sym = st.text_input("Монета (напр. BTC)").upper()
+        in_buy = st.selectbox("Купить на", EXCHANGES)
+        in_sell = st.selectbox("Продать на", EXCHANGES, index=1)
+        in_profit = st.slider("Целевой профит (%)", 0.0, 10.0, 1.0, step=0.1)
+        add_btn = st.form_submit_button("➕ Добавить в список")
+        
+        if add_btn and in_sym:
+            new_alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
+            if new_alert not in st.session_state.alerts:
+                st.session_state.alerts.append(new_alert)
 
-    for i, a in enumerate(st.session_state.alerts):
-        if st.button(f"❌ {a['symbol']} {a['buy']}->{a['sell']} @ {a['target']}%", key=f"del_{i}"):
-            st.session_state.alerts.pop(i)
-            st.rerun()
+    # Отображение списка активных алертов (они сохраняются в session_state)
+    if st.session_state.alerts:
+        st.subheader("Активные Алерты:")
+        for i, a in enumerate(st.session_state.alerts):
+            col_text, col_del = st.columns([4, 1])
+            col_text.caption(f"{a['symbol']} {a['buy']}->{a['sell']} @ {a['target']}%")
+            if col_del.button("❌", key=f"del_{i}"):
+                st.session_state.alerts.pop(i)
+                st.rerun()
 
 autorefresh(refresh)
 df = get_data(max_s, min_v)
 
 triggered_now_keys = set()
+alerts_to_remove = []
 
 if not df.empty:
-    for alert in st.session_state.alerts:
+    for i, alert in enumerate(st.session_state.alerts):
         match = df[
             (df['Инструмент'] == alert['symbol']) & 
             (df['КУПИТЬ'] == alert['buy']) & 
@@ -117,22 +123,22 @@ if not df.empty:
         
         if not match.empty:
             cur_p = match['Профит (%)'].values[0]
-            alert_key = f"{alert['symbol']}_{alert['buy']}_{alert['sell']}_{alert['target']}"
             
-            # Если профит достиг цели (точность до сотых)
+            # Если профит достиг цели
             if round(cur_p, 2) >= alert['target']:
                 triggered_now_keys.add(f"{alert['symbol']}|{alert['buy']}|{alert['sell']}")
-                # Звук сработает только один раз при пересечении
-                if alert_key not in st.session_state.triggered_alerts:
-                    st.session_state.triggered_alerts[alert_key] = True
-                    play_sound()
-                    st.sidebar.success(f"🔔 СИГНАЛ: {alert['symbol']} {cur_p}%")
-            else:
-                # Сброс триггера, если профит упал (чтобы снова запищал при росте)
-                if alert_key in st.session_state.triggered_alerts:
-                    del st.session_state.triggered_alerts[alert_key]
+                play_sound()
+                st.sidebar.success(f"🎯 СРАБОТАЛ: {alert['symbol']} {cur_p}%")
+                # Добавляем в список на удаление, так как алерт выполнил задачу
+                alerts_to_remove.append(i)
 
-    # Визуальный индикатор (подсветка строк)
+    # Удаляем сработавшие алерты из списка (чтобы не пищали вечно)
+    if alerts_to_remove:
+        for index in sorted(alerts_to_remove, reverse=True):
+            st.session_state.alerts.pop(index)
+        # Мы не делаем rerun тут, чтобы дать звуку проиграться
+
+    # Подсветка строк
     def highlight_rows(row):
         key = f"{row['Инструмент']}|{row['КУПИТЬ']}|{row['ПРОДАТЬ']}"
         if key in triggered_now_keys:
@@ -147,6 +153,6 @@ if not df.empty:
     else:
         st.info("Нет связок, соответствующих фильтру профита.")
 else:
-    st.warning("Данные не получены. Нажмите 'Reboot App' если это длится долго.")
+    st.warning("Данные не получены.")
 
-st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Кликните по странице для активации аудио.")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}")
