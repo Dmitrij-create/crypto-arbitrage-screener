@@ -3,48 +3,38 @@ import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
 
-# Инициализация состояний
+# --- Инициализация состояний ---
 if 'alerts' not in st.session_state:
     st.session_state['alerts'] = []
 if 'triggered_alerts' not in st.session_state:
     st.session_state['triggered_alerts'] = {}
 
-# Настройка страницы
-st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
+st.set_page_config(page_title="Arbitrage Screener 2026", layout="wide")
 
-# ФУНКЦИЯ ЗВУКА: Генерация тона через JavaScript (AudioContext)
-def play_sound_js():
-    # Этот скрипт создает звуковую волну программно. Не требует внешних файлов.
+# Функция звука из вашего старого рабочего кода (надежная генерация JS)
+def play_sound():
     sound_js = """
         <script>
         var context = new (window.AudioContext || window.webkitAudioContext)();
-        if (context.state === 'suspended') {
-            context.resume();
-        }
         var oscillator = context.createOscillator();
-        var gainNode = context.createGain();
-        
-        oscillator.type = 'sine'; 
-        oscillator.frequency.setValueAtTime(523.25, context.currentTime); // Нота До (C5)
-        
-        gainNode.gain.setValueAtTime(0.1, context.currentTime); // Громкость 10%
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.5);
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(context.destination);
-        
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, context.currentTime); 
+        oscillator.connect(context.destination);
         oscillator.start();
-        oscillator.stop(context.currentTime + 0.5);
+        setTimeout(function() {
+            oscillator.stop();
+        }, 500); 
         </script>
     """
     components.html(sound_js, height=0)
 
 # Функция автообновления
 def autorefresh(interval_seconds):
-    components.html(
-        f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
-        height=0,
-    )
+    if interval_seconds > 0:
+        components.html(
+            f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
+            height=0,
+        )
 
 EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
 BASE_CURRENCY = 'USDT'
@@ -64,7 +54,7 @@ def get_data(max_spread, min_vol):
                     bid, ask = t['bid'], t['ask']
                     if bid > 0 and ((ask - bid) / bid) * 100 <= max_spread:
                         sym = s.replace(f':{BASE_CURRENCY}', '').replace(f'/{BASE_CURRENCY}', '')
-                        cleaned[sym] = {'bid': bid, 'ask': ask, 'vol': vol}
+                        cleaned[sym] = {'bid': bid, 'ask': ask}
             if cleaned: prices_by_ex[ex_id] = cleaned
         except: continue
 
@@ -84,64 +74,79 @@ def get_data(max_spread, min_vol):
     return pd.DataFrame(data)
 
 # --- ИНТЕРФЕЙС ---
-st.sidebar.header("⚙️ Настройки")
-max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
-min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
+st.title("📊 Arbitrage Screener 2026")
 
-# Список интервалов (явно задан для избежания SyntaxError)
-refresh_options = [10, 30, 60, 300]
-refresh_sec = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=60)
-min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.8)
+with st.sidebar:
+    st.header("⚙️ Настройки")
+    max_s = st.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
+    min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
+    
+    # Исправленный слайдер (без SyntaxError)
+    refresh_opts = [10, 30, 60, 300]
+    refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=30)
+    min_p = st.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.5)
 
-st.sidebar.header("🔔 Управление Алертами")
-in_sym = st.sidebar.text_input("Монета (напр. BTC)", value="BTC").upper()
-in_buy = st.sidebar.selectbox("Купить на", EXCHANGES, index=0)
-in_sell = st.sidebar.selectbox("Продать на", EXCHANGES, index=1)
-in_profit = st.sidebar.slider("Целевой профит (%)", 0.0, 10.0, 1.0, step=0.1)
+    st.header("🔔 Мульти-Алерты")
+    in_sym = st.text_input("Монета", value="BTC").upper()
+    in_buy = st.selectbox("Купить на", EXCHANGES, index=0)
+    in_sell = st.selectbox("Продать на", EXCHANGES, index=1)
+    in_profit = st.slider("Целевой профит (%)", 0.0, 10.0, 1.0, step=0.1)
+    
+    if st.button("➕ Добавить"):
+        alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
+        if alert not in st.session_state.alerts:
+            st.session_state.alerts.append(alert)
 
-if st.sidebar.button("➕ Добавить алерт"):
-    alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
-    if alert not in st.session_state.alerts:
-        st.session_state.alerts.append(alert)
-
-if st.session_state.alerts:
-    st.sidebar.subheader("Активные Алерты:")
     for i, a in enumerate(st.session_state.alerts):
-        if st.sidebar.button(f"❌ {a['symbol']} {a['buy']}->{a['sell']} @ {a['target']}%", key=f"del_{i}"):
+        if st.button(f"❌ {a['symbol']} {a['buy']}->{a['sell']} @ {a['target']}%", key=f"del_{i}"):
             st.session_state.alerts.pop(i)
             st.rerun()
 
-autorefresh(refresh_sec)
+autorefresh(refresh)
 df = get_data(max_s, min_v)
 
 triggered_now_keys = set()
+
 if not df.empty:
     for alert in st.session_state.alerts:
-        match = df[(df['Инструмент'] == alert['symbol']) & (df['КУПИТЬ'] == alert['buy']) & (df['ПРОДАТЬ'] == alert['sell'])]
+        match = df[
+            (df['Инструмент'] == alert['symbol']) & 
+            (df['КУПИТЬ'] == alert['buy']) & 
+            (df['ПРОДАТЬ'] == alert['sell'])
+        ]
+        
         if not match.empty:
             cur_p = match['Профит (%)'].values[0]
             alert_key = f"{alert['symbol']}_{alert['buy']}_{alert['sell']}_{alert['target']}"
+            
+            # Если профит достиг цели (точность до сотых)
             if round(cur_p, 2) >= alert['target']:
                 triggered_now_keys.add(f"{alert['symbol']}|{alert['buy']}|{alert['sell']}")
+                # Звук сработает только один раз при пересечении
                 if alert_key not in st.session_state.triggered_alerts:
                     st.session_state.triggered_alerts[alert_key] = True
-                    play_sound_js() # ВЫЗОВ JS ЗВУКА
-                    st.toast(f"🔔 СИГНАЛ: {alert['symbol']} {cur_p}%")
+                    play_sound()
+                    st.sidebar.success(f"🔔 СИГНАЛ: {alert['symbol']} {cur_p}%")
             else:
+                # Сброс триггера, если профит упал (чтобы снова запищал при росте)
                 if alert_key in st.session_state.triggered_alerts:
                     del st.session_state.triggered_alerts[alert_key]
 
+    # Визуальный индикатор (подсветка строк)
     def highlight_rows(row):
         key = f"{row['Инструмент']}|{row['КУПИТЬ']}|{row['ПРОДАТЬ']}"
-        return ['background-color: #d4edda; color: #155724; font-weight: bold'] * len(row) if key in triggered_now_keys else [''] * len(row)
+        if key in triggered_now_keys:
+            return ['background-color: #d4edda; color: #155724; font-weight: bold'] * len(row)
+        return [''] * len(row)
 
-    st.subheader("Найденные возможности")
+    st.subheader("Актуальные возможности")
     display_df = df[df['Профит (%)'] >= min_p].sort_values('Профит (%)', ascending=False)
+    
     if not display_df.empty:
         st.dataframe(display_df.style.apply(highlight_rows, axis=1), use_container_width=True)
     else:
-        st.info("Нет связок выше порога.")
+        st.info("Нет связок, соответствующих фильтру профита.")
 else:
-    st.warning("Данные не получены.")
+    st.warning("Данные не получены. Нажмите 'Reboot App' если это длится долго.")
 
-st.caption(f"Последнее обновление: {pd.Timestamp.now().strftime('%H:%M:%S')}. Не забудьте кликнуть по странице!")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Кликните по странице для активации аудио.")
