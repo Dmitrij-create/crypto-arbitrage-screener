@@ -83,8 +83,8 @@ with st.sidebar:
     
     # Исправленный слайдер (без SyntaxError)
     refresh_opts = [10, 30, 60, 300]
-    refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=30)
-    min_p = st.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.5)
+    refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=60)
+    min_p = st.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.8)
 
     st.header("🔔 Мульти-Алерты")
     in_sym = st.text_input("Монета", value="BTC").upper()
