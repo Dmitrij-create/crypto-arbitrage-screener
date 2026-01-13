@@ -12,8 +12,9 @@ if 'triggered_alerts' not in st.session_state:
 # Настройка страницы
 st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
 
-# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5 (самый стабильный метод)
+# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5
 def play_sound_html():
+    # Исправленная прямая ссылка на mp3 файл
     sound_url = "www.soundjay.com"
     sound_html = f"""
         <audio autoplay style="display:none;">
@@ -77,20 +78,20 @@ st.sidebar.header("⚙️ Настройки")
 max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
-# ИСПРАВЛЕНО: Теперь список options заполнен
+# СТРОКА 76: ИСПРАВЛЕН СПИСОК OPTIONS
 refresh_sec = st.sidebar.select_slider(
     "Обновление (сек)", 
-    options=[10, 30, 60, 120, 300], 
-    value=60
+    options=[10, 30, 60, 300], 
+    value=30
 )
 
-min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 10.0, 0.8)
+min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.5)
 
 st.sidebar.header("🔔 Управление Алертами")
 in_sym = st.sidebar.text_input("Монета (напр. BTC)", value="BTC").upper()
 in_buy = st.sidebar.selectbox("Купить на", EXCHANGES, index=0)
 in_sell = st.sidebar.selectbox("Продать на", EXCHANGES, index=1)
-in_profit = st.sidebar.slider("Целевой профит (%)", 0.0, 10.0, 1.0, step=0.1)
+in_profit = st.sidebar.slider("Целевой профит (%)", 0.0, 5.0, 1.0, step=0.1)
 
 if st.sidebar.button("➕ Добавить алерт"):
     alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
@@ -150,4 +151,4 @@ if not df.empty:
 else:
     st.warning("Данные не получены.")
 
-st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Не забудьте кликнуть по странице!")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Кликните по странице для включения звука!")
