@@ -84,7 +84,7 @@ refresh_sec = st.sidebar.select_slider(
     value=60
 )
 
-min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 10.0, 0.5)
+min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 10.0, 0.8)
 
 st.sidebar.header("🔔 Управление Алертами")
 in_sym = st.sidebar.text_input("Монета (напр. BTC)", value="BTC").upper()
