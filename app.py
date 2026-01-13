@@ -12,9 +12,8 @@ if 'triggered_alerts' not in st.session_state:
 # Настройка страницы
 st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
 
-# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5
+# ФУНКЦИЯ ЗВУКА: Воспроизведение через HTML5 (самый стабильный метод)
 def play_sound_html():
-    # Исправленная прямая ссылка на mp3 файл
     sound_url = "www.soundjay.com"
     sound_html = f"""
         <audio autoplay style="display:none;">
@@ -73,20 +72,17 @@ def get_data(max_spread, min_vol):
                 })
     return pd.DataFrame(data)
 
-# --- ИСПРАВЛЕННЫЙ БЛОК НАСТРОЕК ---
+# --- ИНТЕРФЕЙС ---
 st.sidebar.header("⚙️ Настройки")
 max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.3)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
-# Выносим список в отдельную переменную, чтобы избежать ошибки SyntaxError
-refresh_options =[10, 30, 60, 300, 600]
+# ИСПРАВЛЕНО: Теперь список options заполнен
 refresh_sec = st.sidebar.select_slider(
     "Обновление (сек)", 
-    options=refresh_options, 
+    options=[10, 30, 60, 120, 300], 
     value=30
 )
-# ---------------------------------
-
 
 min_p = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.5)
 
@@ -154,4 +150,4 @@ if not df.empty:
 else:
     st.warning("Данные не получены.")
 
-st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Кликните по странице для включения звука!")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Не забудьте кликнуть по странице!")
