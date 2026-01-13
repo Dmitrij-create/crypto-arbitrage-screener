@@ -2,14 +2,33 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
+import json
 
-# --- Инициализация состояний (выполняется один раз при запуске) ---
-if 'alerts' not in st.session_state:
-    st.session_state['alerts'] = []
-
+# Настройка страницы
 st.set_page_config(page_title="Arbitrage Screener 2026", layout="wide")
 
-# Функция звука из вашего старого рабочего кода
+# --- JS КОМПОНЕНТ ДЛЯ СОХРАНЕНИЯ АЛЕРТОВ В БРАУЗЕРЕ ---
+# Этот скрипт позволяет Python общаться с localStorage браузера
+def sync_alerts_js(alerts_list):
+    alerts_json = json.dumps(alerts_list)
+    js_code = f"""
+    <script>
+    // 1. Сохраняем алерты в браузер, если они пришли из Python
+    var alerts = {alerts_json};
+    if (alerts.length > 0) {{
+        localStorage.setItem('arbitrage_alerts', JSON.stringify(alerts));
+    }}
+    
+    // 2. Если в Python пусто, пробуем загрузить из браузера
+    var stored = localStorage.getItem('arbitrage_alerts');
+    if (stored && alerts.length === 0) {{
+        window.parent.postMessage({{type: 'streamlit:set_alerts', data: JSON.parse(stored)}}, '*');
+    }}
+    </script>
+    """
+    components.html(js_code, height=0)
+
+# Функция звука (ваша рабочая версия)
 def play_sound():
     sound_js = """
         <script>
@@ -19,9 +38,7 @@ def play_sound():
         oscillator.frequency.setValueAtTime(440, context.currentTime); 
         oscillator.connect(context.destination);
         oscillator.start();
-        setTimeout(function() {
-            oscillator.stop();
-        }, 500); 
+        setTimeout(function() {{ oscillator.stop(); }}, 500); 
         </script>
     """
     components.html(sound_js, height=0)
@@ -33,6 +50,13 @@ def autorefresh(interval_seconds):
             f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
             height=0,
         )
+
+# --- Инициализация состояний ---
+if 'alerts' not in st.session_state:
+    st.session_state['alerts'] = []
+
+# Синхронизация с браузером
+sync_alerts_js(st.session_state['alerts'])
 
 EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
 BASE_CURRENCY = 'USDT'
@@ -84,75 +108,55 @@ with st.sidebar:
     min_p = st.slider("Мин. профит в таблице (%)", 0.0, 5.0, 0.8)
 
     st.header("🔔 Добавить Алерт")
-    # Используем форму, чтобы ввод не сбрасывался преждевременно
     with st.form("alert_form", clear_on_submit=True):
         in_sym = st.text_input("Монета (напр. BTC)").upper()
         in_buy = st.selectbox("Купить на", EXCHANGES)
         in_sell = st.selectbox("Продать на", EXCHANGES, index=1)
         in_profit = st.slider("Целевой профит (%)", 0.0, 10.0, 1.0, step=0.1)
-        add_btn = st.form_submit_button("➕ Добавить в список")
+        add_btn = st.form_submit_button("➕ Добавить")
         
         if add_btn and in_sym:
             new_alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
             if new_alert not in st.session_state.alerts:
                 st.session_state.alerts.append(new_alert)
+                # Принудительно сохраняем в localStorage
+                st.rerun()
 
-    # Отображение списка активных алертов (они сохраняются в session_state)
     if st.session_state.alerts:
         st.subheader("Активные Алерты:")
         for i, a in enumerate(st.session_state.alerts):
-            col_text, col_del = st.columns([4, 1])
-            col_text.caption(f"{a['symbol']} {a['buy']}->{a['sell']} @ {a['target']}%")
-            if col_del.button("❌", key=f"del_{i}"):
+            col_t, col_d = st.columns([3, 1])
+            col_t.caption(f"{a['symbol']} {a['buy']}->{a['sell']} @ {a['target']}%")
+            if col_d.button("❌", key=f"del_{i}"):
                 st.session_state.alerts.pop(i)
+                # Очищаем localStorage, если удалили всё
+                if not st.session_state.alerts:
+                    components.html("<script>localStorage.removeItem('arbitrage_alerts');</script>", height=0)
                 st.rerun()
 
 autorefresh(refresh)
 df = get_data(max_s, min_v)
 
 triggered_now_keys = set()
-alerts_to_remove = []
-
 if not df.empty:
     for i, alert in enumerate(st.session_state.alerts):
-        match = df[
-            (df['Инструмент'] == alert['symbol']) & 
-            (df['КУПИТЬ'] == alert['buy']) & 
-            (df['ПРОДАТЬ'] == alert['sell'])
-        ]
-        
+        match = df[(df['Инструмент'] == alert['symbol']) & (df['КУПИТЬ'] == alert['buy']) & (df['ПРОДАТЬ'] == alert['sell'])]
         if not match.empty:
             cur_p = match['Профит (%)'].values[0]
-            
-            # Если профит достиг цели
             if round(cur_p, 2) >= alert['target']:
                 triggered_now_keys.add(f"{alert['symbol']}|{alert['buy']}|{alert['sell']}")
                 play_sound()
                 st.sidebar.success(f"🎯 СРАБОТАЛ: {alert['symbol']} {cur_p}%")
-                # Добавляем в список на удаление, так как алерт выполнил задачу
-                alerts_to_remove.append(i)
 
-    # Удаляем сработавшие алерты из списка (чтобы не пищали вечно)
-    if alerts_to_remove:
-        for index in sorted(alerts_to_remove, reverse=True):
-            st.session_state.alerts.pop(index)
-        # Мы не делаем rerun тут, чтобы дать звуку проиграться
-
-    # Подсветка строк
     def highlight_rows(row):
         key = f"{row['Инструмент']}|{row['КУПИТЬ']}|{row['ПРОДАТЬ']}"
-        if key in triggered_now_keys:
-            return ['background-color: #d4edda; color: #155724; font-weight: bold'] * len(row)
-        return [''] * len(row)
+        return ['background-color: #d4edda; color: #155724; font-weight: bold'] * len(row) if key in triggered_now_keys else [''] * len(row)
 
     st.subheader("Актуальные возможности")
     display_df = df[df['Профит (%)'] >= min_p].sort_values('Профит (%)', ascending=False)
-    
     if not display_df.empty:
         st.dataframe(display_df.style.apply(highlight_rows, axis=1), use_container_width=True)
     else:
-        st.info("Нет связок, соответствующих фильтру профита.")
-else:
-    st.warning("Данные не получены.")
+        st.info("Нет связок по вашим фильтрам.")
 
 st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}")
