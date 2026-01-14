@@ -125,7 +125,7 @@ refresh_options = [15, 30, 60, 120] # Исправлено
 refresh = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=60)
 
 st.sidebar.header("💰 Параметры сделки")
-invest = st.sidebar.number_input("Сумма (USDT)", 10, 100000, 100)
+invest = st.sidebar.number_input("Сумма (USDT)", 10, 100000, 50)
 fee = st.sidebar.number_input("Taker Fee %", 0.0, 0.1, 0.05, format="%.3f")
 
 # Алерты
