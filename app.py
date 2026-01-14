@@ -103,7 +103,7 @@ def get_data(max_spread, min_vol, taker_fee_percent, investment_amount):
                 total_fee_rate = (taker_fee_percent / 100) * 2 
                 net_profit_percent = gross_profit - total_fee_rate
                 
-                # Фильтруем аномалии и показываем только потенциально интересные сделки
+                # Фильтруем и показываем только потенциально интересные сделки
                 if net_profit_percent > -2: 
                     data.append({
                         'Инструмент': sym, 
@@ -122,12 +122,12 @@ max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
 # Список интервалов обновления
-refresh_options = [0, 10, 30, 60, 300]
+refresh_options = [10, 30, 60, 300]
 refresh = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=60)
 
 st.sidebar.header("💰 Депозит для анализа")
 invest = st.sidebar.number_input("Сумма сделки (USDT)", 10, 100000, 1000)
-fee = st.sidebar.number_input("Taker Fee %", 0.0, 0.1, 0.04, step=0.005, format="%.3f")
+fee = st.sidebar.number_input("Taker Fee %", 0.0, 0.1, 0.05, step=0.005, format="%.3f")
 
 st.sidebar.header("🔔 Алерты (L2)")
 with st.sidebar.form("alert_form", clear_on_submit=True):
@@ -166,4 +166,3 @@ else:
     st.info("Связок с учетом глубины стакана не найдено.")
 
 st.caption(f"Дата и время: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
- [1, 2]
