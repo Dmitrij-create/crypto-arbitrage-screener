@@ -122,8 +122,8 @@ max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
 min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
 
 # Список интервалов обновления
-refresh_options = [10, 30, 60, 300]
-refresh = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=60)
+refresh_options = [10, 30, 60, 120]
+refresh = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=120)
 
 st.sidebar.header("💰 Депозит для анализа")
 invest = st.sidebar.number_input("Сумма сделки (USDT)", 10, 100000, 1000)
