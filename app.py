@@ -110,7 +110,7 @@ with st.sidebar:
     max_s = st.slider("Макс. внутр. спред Bid/Ask (%)", 0.0, 1.0, 0.4)
     min_v = st.number_input("Мин. объем торгов (USDT)", 0, 10000000, 100000)
     
-    refresh_opts =
+    refresh_opts = [10, 30, 60, 300]
     refresh = st.select_slider("Автообновление (сек)", options=refresh_opts, value=30)
     min_p = st.slider("Мин. чистый профит (%)", 0.0, 5.0, 0.5)
 
