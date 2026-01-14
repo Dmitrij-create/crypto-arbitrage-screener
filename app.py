@@ -156,7 +156,7 @@ with st.sidebar:
     min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 150000)
     
     # ИСПРАВЛЕННЫЙ СПИСОК
-    refresh_options =
+    refresh_options = [15, 30, 60, 120]
     refresh = st.select_slider("Обновление (сек)", options=refresh_options, value=60)
 
     st.header("💰 Параметры сделки")
