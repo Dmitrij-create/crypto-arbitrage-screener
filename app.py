@@ -2,6 +2,7 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
+import json
 
 # --- Инициализация состояний ---
 if 'alerts' not in st.session_state:
@@ -9,10 +10,8 @@ if 'alerts' not in st.session_state:
 if 'triggered_alerts' not in st.session_state:
     st.session_state['triggered_alerts'] = {}
 
-# Настройка страницы
 st.set_page_config(page_title="Arbitrage Screener 2026 Pro", layout="wide")
 
-# Функция звука (ваша рабочая версия JS)
 def play_sound():
     sound_js = """
         <script>
@@ -22,14 +21,11 @@ def play_sound():
         oscillator.frequency.setValueAtTime(440, context.currentTime); 
         oscillator.connect(context.destination);
         oscillator.start();
-        setTimeout(function() {
-            oscillator.stop();
-        }, 500); 
+        setTimeout(function() {{ oscillator.stop(); }}, 500); 
         </script>
     """
     components.html(sound_js, height=0)
 
-# Функция автообновления
 def autorefresh(interval_seconds):
     if interval_seconds > 0:
         components.html(
@@ -43,11 +39,24 @@ BASE_CURRENCY = 'USDT'
 @st.cache_data(ttl=10)
 def get_data(max_spread, min_vol, taker_fee_percent, investment_amount):
     data = []
-    prices_by_ex = {}
+    prices_ex = {}
+    funding_rates_ex = {}
+    
     for ex_id in EXCHANGES:
         try:
             ex_obj = getattr(ccxt, ex_id)({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
             tickers = ex_obj.fetch_tickers()
+            # Пытаемся получить ставки финансирования (может не работать для всех CCXT версий)
+            try:
+                # CCXT Unified API метод fetch_funding_rate требует символ 'BTC/USDT', а не просто 'BTC'
+                all_symbols = [s for s in tickers.keys() if f'{BASE_CURRENCY}' in s]
+                # Ограничиваем количество запросов, чтобы не превысить лимиты
+                rates = {s: ex_obj.fetch_funding_rate(s)['fundingRate'] for s in all_symbols[:50]} 
+                funding_rates_ex[ex_id] = rates
+            except Exception as e_rate:
+                # st.sidebar.warning(f"{ex_id}: Ошибка при получении фандинга ({e_rate})")
+                pass
+
             cleaned = {}
             for s, t in tickers.items():
                 vol = t.get('quoteVolume') or 0
@@ -56,49 +65,56 @@ def get_data(max_spread, min_vol, taker_fee_percent, investment_amount):
                     if bid > 0 and ((ask - bid) / bid) * 100 <= max_spread:
                         sym = s.replace(f':{BASE_CURRENCY}', '').replace(f'/{BASE_CURRENCY}', '')
                         cleaned[sym] = {'bid': bid, 'ask': ask}
-            if cleaned: prices_by_ex[ex_id] = cleaned
-        except: continue
+            if cleaned: prices_ex[ex_id] = cleaned
+        except Exception as e_ex: 
+            # st.sidebar.error(f"{ex_id}: Ошибка API ({e_ex})")
+            continue
 
-    all_syms = set().union(*(ex.keys() for ex in prices_by_ex.values()))
+    all_syms = set().union(*(ex.keys() for ex in prices_ex.values()))
     for sym in all_syms:
-        ex_with_sym = [ex for ex in prices_by_ex if sym in prices_by_ex[ex]]
+        ex_with_sym = [ex for ex in prices_ex if sym in prices_ex[ex]]
         if len(ex_with_sym) >= 2:
-            bids = {ex: prices_by_ex[ex][sym]['bid'] for ex in ex_with_sym}
-            asks = {ex: prices_by_ex[ex][sym]['ask'] for ex in ex_with_sym}
+            bids = {ex: prices_ex[ex][sym]['bid'] for ex in ex_with_sym}
+            asks = {ex: prices_ex[ex][sym]['ask'] for ex in ex_with_sym}
             buy_ex, sell_ex = min(asks, key=asks.get), max(bids, key=bids.get)
             p_buy, p_sell = asks[buy_ex], bids[sell_ex]
             
             if p_sell > p_buy:
                 gross_profit = ((p_sell - p_buy) / p_buy) * 100
-                # Комиссия Taker берется за вход и за выход (х2)
                 total_fee_rate = (taker_fee_percent / 100) * 2 
                 net_profit_percent = gross_profit - total_fee_rate
                 net_profit_usd = investment_amount * (net_profit_percent / 100)
-
+                
+                # --- НОВОЕ: Расчет APR фандинга ---
+                buy_fr = funding_rates_ex.get(buy_ex, {}).get(f'{sym}/{BASE_CURRENCY}', 0)
+                sell_fr = funding_rates_ex.get(sell_ex, {}).get(f'{sym}/{BASE_CURRENCY}', 0)
+                # Разница фандинга * 3 раза в день * 365 дней (если ставки не меняются)
+                apr_percent = (sell_fr - buy_fr) * 3 * 365 * 100
+                
                 data.append({
                     'Инструмент': sym, 
                     'КУПИТЬ': buy_ex.upper(), 
                     'ПРОДАТЬ': sell_ex.upper(), 
                     'Грязный %': round(gross_profit, 3),
                     'Чистый %': round(net_profit_percent, 3),
-                    'Профит $': round(net_profit_usd, 2)
+                    'Профит $': round(net_profit_usd, 2),
+                    'APR Фандинга (%)': round(apr_percent, 2), # Новый столбец
                 })
     return pd.DataFrame(data)
 
 # --- ИНТЕРФЕЙС ---
-st.title("📊 Arbitrage Screener 2026 Pro")
+st.title("📊 Arbitrage Screener 2026 Pro (Alpha)")
 
 with st.sidebar:
     st.header("⚙️ Настройки Фильтров")
-    max_s = st.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
-    min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
+    max_s = st.slider("Макс. внутр. спред Bid/Ask (%)", 0.0, 1.0, 0.4)
+    min_v = st.number_input("Мин. объем торгов (USDT)", 0, 10000000, 100000)
     
-    # ИСПРАВЛЕННЫЙ СПИСОК (БЕЗ ОШИБОК)
-    refresh_opts = [10, 30, 60, 300]
-    refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=60)
-    min_p = st.slider("Мин. чистый профит (%)", 0.0, 5.0, 0.8)
+    refresh_opts =
+    refresh = st.select_slider("Автообновление (сек)", options=refresh_opts, value=30)
+    min_p = st.slider("Мин. чистый профит (%)", 0.0, 5.0, 0.5)
 
-    st.header("💰 Калькулятор")
+    st.header("💰 Калькулятор Прибыли")
     invest = st.number_input("Ваш депозит (USDT)", 100, 100000, 1000)
     fee = st.number_input("Taker Fee % (0.04 средняя)", 0.0, 0.1, 0.04, step=0.005, format="%.3f")
 
@@ -117,7 +133,7 @@ with st.sidebar:
     if st.session_state.alerts:
         st.subheader("Активные Алерты:")
         for i, a in enumerate(st.session_state.alerts):
-            col_t, col_d = st.columns([3, 1])
+            col_t, col_d = st.columns()
             col_t.caption(f"{a['sym']} {a['buy']}->{a['sell']} @ {a['target']}%")
             if col_d.button("❌", key=f"del_{i}"):
                 st.session_state.alerts.pop(i)
@@ -131,7 +147,7 @@ if not df.empty:
     for alert in st.session_state.alerts:
         match = df[(df['Инструмент'] == alert['sym']) & (df['КУПИТЬ'] == alert['buy']) & (df['ПРОДАТЬ'] == alert['sell'])]
         if not match.empty:
-            cur_net_p = match['Чистый %'].iloc[0]
+            cur_net_p = match['Чистый %'].iloc
             alert_key = f"{alert['sym']}_{alert['buy']}_{alert['sell']}_{alert['target']}"
             if round(cur_net_p, 2) >= alert['target']:
                 triggered_now.add(f"{alert['sym']}|{alert['buy']}|{alert['sell']}")
@@ -147,11 +163,11 @@ if not df.empty:
         key = f"{row['Инструмент']}|{row['КУПИТЬ']}|{row['ПРОДАТЬ']}"
         return ['background-color: #d4edda; color: #155724; font-weight: bold'] * len(row) if key in triggered_now else [''] * len(row)
 
-    st.subheader("Найденные возможности (с учетом комиссий)")
+    st.subheader("Актуальные возможности (с учетом комиссий)")
     display_df = df[df['Чистый %'] >= min_p].sort_values('Чистый %', ascending=False)
     if not display_df.empty:
         st.dataframe(display_df.style.apply(highlight, axis=1), use_container_width=True)
     else:
         st.info("Связок с таким чистым профитом пока нет.")
 
-st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Не забудьте кликнуть по странице!")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}")
