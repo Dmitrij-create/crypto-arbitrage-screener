@@ -6,12 +6,9 @@ import streamlit.components.v1 as components
 # --- Инициализация состояний ---
 if 'alerts' not in st.session_state:
     st.session_state['alerts'] = []
-if 'triggered_alerts' not in st.session_state:
-    st.session_state['triggered_alerts'] = {}
 
-st.set_page_config(page_title="Arbitrage L2 Screener 2026", layout="wide")
+st.set_page_config(page_title="Arbitrage L2 Fast 2026", layout="wide")
 
-# Функция звука (JS AudioContext)
 def play_sound():
     sound_js = """
         <script>
@@ -26,7 +23,6 @@ def play_sound():
     """
     components.html(sound_js, height=0)
 
-# Функция автообновления
 def autorefresh(interval_seconds):
     if interval_seconds > 0:
         components.html(
@@ -38,131 +34,128 @@ EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
 BASE_CURRENCY = 'USDT'
 
 def get_l2_price(ex_obj, symbol, side, amount_usdt):
-    """Рассчитывает среднюю цену исполнения (Average Fill Price) для объема в USDT"""
+    """Быстрый расчет цены исполнения L2"""
     try:
-        # Запрашиваем стакан (глубина 20 уровней)
-        order_book = ex_obj.fetch_order_book(symbol, 20)
+        # Устанавливаем короткий таймаут для стакана, чтобы не вешать скрипт
+        order_book = ex_obj.fetch_order_book(symbol, 10) 
         orders = order_book['asks'] if side == 'buy' else order_book['bids']
         
-        accumulated_usdt = 0
-        accumulated_crypto = 0
-        
+        accum_usdt = 0
+        accum_crypto = 0
         for price, amount in orders:
-            order_usdt = price * amount
-            if accumulated_usdt + order_usdt >= amount_usdt:
-                needed_usdt = amount_usdt - accumulated_usdt
-                accumulated_crypto += needed_usdt / price
-                accumulated_usdt += needed_usdt
-                break
-            else:
-                accumulated_crypto += amount
-                accumulated_usdt += order_usdt
-        
-        if accumulated_usdt < amount_usdt: 
-            return None # Недостаточно ликвидности
-        return accumulated_usdt / accumulated_crypto
+            vol_usdt = price * amount
+            if accum_usdt + vol_usdt >= amount_usdt:
+                needed = amount_usdt - accum_usdt
+                accum_crypto += needed / price
+                return amount_usdt / accum_crypto
+            accum_crypto += amount
+            accum_usdt += vol_usdt
+        return None
     except:
         return None
 
-@st.cache_data(ttl=10)
-def get_data(max_spread, min_vol, taker_fee_percent, investment_amount):
+@st.cache_data(ttl=15) # Увеличили кэш для стабильности
+def get_data(max_spread, min_vol, taker_fee, invest_amount):
     data = []
     prices_ex = {}
     objs = {}
 
-    # 1. Сбор тикеров для первичного фильтра
+    # 1. Быстрый сбор тикеров (один запрос на биржу)
     for ex_id in EXCHANGES:
         try:
-            ex_obj = getattr(ccxt, ex_id)({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
+            ex_obj = getattr(ccxt, ex_id)({
+                'enableRateLimit': True, 
+                'timeout': 10000,
+                'options': {'defaultType': 'swap'}
+            })
             objs[ex_id] = ex_obj
             tickers = ex_obj.fetch_tickers()
-            cleaned = {}
-            for s, t in tickers.items():
-                vol = t.get('quoteVolume') or 0
-                if f'{BASE_CURRENCY}' in s and t.get('bid') and t.get('ask') and vol >= min_vol:
-                    sym = s.replace(f':{BASE_CURRENCY}', '').replace(f'/{BASE_CURRENCY}', '')
-                    cleaned[sym] = {'bid': t['bid'], 'ask': t['ask'], 'full_sym': s}
+            cleaned = {
+                s.replace(f':{BASE_CURRENCY}', '').replace(f'/{BASE_CURRENCY}', ''): 
+                {'bid': t['bid'], 'ask': t['ask'], 'full_sym': s, 'vol': t.get('quoteVolume') or 0}
+                for s, t in tickers.items() 
+                if f'{BASE_CURRENCY}' in s and t.get('bid') and t.get('ask')
+            }
             if cleaned: prices_ex[ex_id] = cleaned
         except: continue
 
-    # 2. Анализ пересечений и L2 стакана
+    # 2. Предварительный отбор лучших связок по тикерам
+    pre_candidates = []
     all_syms = set().union(*(ex.keys() for ex in prices_ex.values()))
     for sym in all_syms:
         ex_with_sym = [ex for ex in prices_ex if sym in prices_ex[ex]]
         if len(ex_with_sym) >= 2:
-            # Находим лучшую биржу для покупки и продажи по тикерам
-            buy_ex_id = min(ex_with_sym, key=lambda x: prices_ex[x][sym]['ask'])
-            sell_ex_id = max(ex_with_sym, key=lambda x: prices_ex[x][sym]['bid'])
+            buy_ex = min(ex_with_sym, key=lambda x: prices_ex[x][sym]['ask'])
+            sell_ex = max(ex_with_sym, key=lambda x: prices_ex[x][sym]['bid'])
+            p_buy = prices_ex[buy_ex][sym]['ask']
+            p_sell = prices_ex[sell_ex][sym]['bid']
+            vol = max(prices_ex[ex][sym]['vol'] for ex in ex_with_sym)
             
-            # 3. Глубокий анализ стакана (L2) для конкретного объема
-            p_buy_l2 = get_l2_price(objs[buy_ex_id], prices_ex[buy_ex_id][sym]['full_sym'], 'buy', investment_amount)
-            p_sell_l2 = get_l2_price(objs[sell_ex_id], prices_ex[sell_ex_id][sym]['full_sym'], 'sell', investment_amount)
+            if p_sell > p_buy and vol >= min_vol:
+                diff = ((p_sell - p_buy) / p_buy) * 100
+                if diff <= 10: # Фильтр аномалий > 10% (обычно ошибки API)
+                    pre_candidates.append({'sym': sym, 'buy_ex': buy_ex, 'sell_ex': sell_ex, 'diff': diff})
 
-            if p_buy_l2 and p_sell_l2:
-                gross_profit = ((p_sell_l2 - p_buy_l2) / p_buy_l2) * 100
-                total_fee_rate = (taker_fee_percent / 100) * 2 
-                net_profit_percent = gross_profit - total_fee_rate
-                
-                # Фильтруем и показываем только потенциально интересные сделки
-                if net_profit_percent > -2: 
-                    data.append({
-                        'Инструмент': sym, 
-                        'КУПИТЬ': buy_ex_id.upper(), 
-                        'ПРОДАТЬ': sell_ex_id.upper(), 
-                        'L2 Чистый %': round(net_profit_percent, 3),
-                        'Профит $': round(investment_amount * (net_profit_percent / 100), 2),
-                        'Цена L2 Buy': round(p_buy_l2, 6),
-                        'Цена L2 Sell': round(p_sell_l2, 6)
-                    })
+    # 3. Глубокий анализ L2 ТОЛЬКО для ТОП-10 кандидатов (чтобы не зависало)
+    pre_candidates = sorted(pre_candidates, key=lambda x: x['diff'], reverse=True)[:10]
+
+    for c in pre_candidates:
+        sym = c['sym']
+        full_buy_sym = prices_ex[c['buy_ex']][sym]['full_sym']
+        full_sell_sym = prices_ex[c['sell_ex']][sym]['full_sym']
+        
+        p_buy_l2 = get_l2_price(objs[c['buy_ex']], full_buy_sym, 'buy', invest_amount)
+        p_sell_l2 = get_l2_price(objs[c['sell_ex']], full_sell_sym, 'sell', invest_amount)
+
+        if p_buy_l2 and p_sell_l2:
+            net_p = (((p_sell_l2 - p_buy_l2) / p_buy_l2) * 100) - (taker_fee * 2)
+            data.append({
+                'Инструмент': sym, 
+                'КУПИТЬ': c['buy_ex'].upper(), 'ПРОДАТЬ': c['sell_ex'].upper(), 
+                'L2 Чистый %': round(net_p, 3),
+                'Профит $': round(invest_amount * (net_p / 100), 2),
+                'L2 Buy': round(p_buy_l2, 6), 'L2 Sell': round(p_sell_l2, 6)
+            })
     return pd.DataFrame(data)
 
 # --- ИНТЕРФЕЙС ---
-st.sidebar.header("⚙️ Настройки L2")
-max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
-min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
+st.sidebar.header("⚙️ Оптимизированный L2")
+min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 150000)
+refresh_options = [15, 30, 60, 120] # Исправлено
+refresh = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=60)
 
-# Список интервалов обновления
-refresh_options = [10, 30, 60, 120]
-refresh = st.sidebar.select_slider("Обновление (сек)", options=refresh_options, value=120)
+st.sidebar.header("💰 Параметры сделки")
+invest = st.sidebar.number_input("Сумма (USDT)", 10, 100000, 1000)
+fee = st.sidebar.number_input("Taker Fee %", 0.0, 0.1, 0.05, format="%.3f")
 
-st.sidebar.header("💰 Депозит для анализа")
-invest = st.sidebar.number_input("Сумма сделки (USDT)", 10, 100000, 1000)
-fee = st.sidebar.number_input("Taker Fee %", 0.0, 0.1, 0.05, step=0.005, format="%.3f")
-
-st.sidebar.header("🔔 Алерты (L2)")
-with st.sidebar.form("alert_form", clear_on_submit=True):
+# Алерты
+with st.sidebar.form("alert_form"):
     in_sym = st.text_input("Монета").upper()
-    in_buy = st.selectbox("Купить на", EXCHANGES)
-    in_sell = st.selectbox("Продать на", EXCHANGES, index=1)
-    in_profit = st.slider("Цель L2 %", 0.0, 5.0, 1.0, step=0.1)
+    in_profit = st.slider("Цель L2 %", 0.0, 5.0, 1.0)
     if st.form_submit_button("➕ Добавить"):
-        if in_sym:
-            st.session_state.alerts.append({'sym': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit})
+        if in_sym: st.session_state.alerts.append({'sym': in_sym, 'target': in_profit})
 
-# Список алертов
-if st.session_state.alerts:
-    st.sidebar.subheader("Активные Алерты:")
-    for i, a in enumerate(st.session_state.alerts):
-        if st.sidebar.button(f"❌ {a['sym']} {a['target']}%", key=f"d_{i}"):
-            st.session_state.alerts.pop(i)
-            st.rerun()
+for i, a in enumerate(st.session_state.alerts):
+    if st.sidebar.button(f"❌ {a['sym']} {a['target']}%", key=f"d_{i}"):
+        st.session_state.alerts.pop(i)
+        st.rerun()
 
 autorefresh(refresh)
-df = get_data(max_s, min_v, fee, invest)
+st.info("⌛ Сканирование рынка и стаканов ТОП-10 пар...")
+
+df = get_data(0.4, min_v, fee, invest)
 
 if not df.empty:
     # Проверка алертов
     for alert in st.session_state.alerts:
-        match = df[(df['Инструмент'] == alert['sym']) & (df['КУПИТЬ'] == alert['buy']) & (df['ПРОДАТЬ'] == alert['sell'])]
+        match = df[(df['Инструмент'] == alert['sym']) & (df['L2 Чистый %'] >= alert['target'])]
         if not match.empty:
-            cur_p = match['L2 Чистый %'].iloc[0]
-            if cur_p >= alert['target']:
-                play_sound()
-                st.sidebar.success(f"🎯 L2 СИГНАЛ: {alert['sym']} {cur_p}%")
+            play_sound()
+            st.sidebar.success(f"🎯 СИГНАЛ: {alert['sym']} {match['L2 Чистый %'].iloc[0]}%")
 
-    st.subheader(f"Результаты анализа ликвидности (Объем: {invest} USDT)")
+    st.subheader(f"ТОП связок с учетом ликвидности на {invest} USDT")
     st.dataframe(df.sort_values('L2 Чистый %', ascending=False), use_container_width=True)
 else:
-    st.info("Связок с учетом глубины стакана не найдено.")
+    st.warning("Выгодных связок с учетом ликвидности не найдено. Попробуйте уменьшить сумму сделки.")
 
-st.caption(f"Дата и время: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption(f"Обновлено в 2026 году: {pd.Timestamp.now().strftime('%H:%M:%S')}")
