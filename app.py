@@ -153,7 +153,7 @@ with st.sidebar:
         type_sell_input = st.selectbox("Продажа", options=['Futures', 'Spot'], index=0)
 
     st.header("⚙️ Настройки L2")
-    min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 150000)
+    min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
     
     # ИСПРАВЛЕННЫЙ СПИСОК
     refresh_options = [15, 30, 60, 120]
