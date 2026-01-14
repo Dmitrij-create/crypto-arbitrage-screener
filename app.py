@@ -2,18 +2,17 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
-import json
 
 # --- Инициализация состояний ---
 if 'alerts' not in st.session_state:
     st.session_state['alerts'] = []
 if 'triggered_alerts' not in st.session_state:
-    st.session_state['triggered_alerts'] = set() # Используем set для уникальных ключей
+    st.session_state['triggered_alerts'] = {}
 
 # Настройка страницы
 st.set_page_config(page_title="Arbitrage Screener 2026 Pro", layout="wide")
 
-# Функция звука (ваша рабочая версия)
+# Функция звука (ваша рабочая версия JS)
 def play_sound():
     sound_js = """
         <script>
@@ -71,9 +70,7 @@ def get_data(max_spread, min_vol, taker_fee_percent, investment_amount):
             
             if p_sell > p_buy:
                 gross_profit = ((p_sell - p_buy) / p_buy) * 100
-                
-                # --- НОВОЕ: Расчет чистой прибыли и объема ---
-                # Комиссия берется дважды: за покупку и за продажу
+                # Комиссия Taker берется за вход и за выход (х2)
                 total_fee_rate = (taker_fee_percent / 100) * 2 
                 net_profit_percent = gross_profit - total_fee_rate
                 net_profit_usd = investment_amount * (net_profit_percent / 100)
@@ -82,97 +79,79 @@ def get_data(max_spread, min_vol, taker_fee_percent, investment_amount):
                     'Инструмент': sym, 
                     'КУПИТЬ': buy_ex.upper(), 
                     'ПРОДАТЬ': sell_ex.upper(), 
-                    'Профит (%)': round(gross_profit, 3),
-                    'Чистая Прибыль (%)': round(net_profit_percent, 3), # Новый столбец
-                    'Чистая Прибыль ($)': round(net_profit_usd, 2)     # Новый столбец
+                    'Грязный %': round(gross_profit, 3),
+                    'Чистый %': round(net_profit_percent, 3),
+                    'Профит $': round(net_profit_usd, 2)
                 })
     return pd.DataFrame(data)
 
 # --- ИНТЕРФЕЙС ---
-st.title("📊 Arbitrage Screener 2026")
+st.title("📊 Arbitrage Screener 2026 Pro")
 
 with st.sidebar:
     st.header("⚙️ Настройки Фильтров")
-    max_s = st.slider("Макс. внутр. спред Bid/Ask (%)", 0.0, 1.0, 0.4)
-    min_v = st.number_input("Мин. объем торгов (USDT)", 0, 10000000, 100000)
+    max_s = st.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
+    min_v = st.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
     
-    refresh_opts =
-    refresh = st.select_slider("Автообновление (сек)", options=refresh_opts, value=30)
-    min_p = st.slider("Мин. чистый профит для таблицы (%)", 0.0, 5.0, 0.5)
+    # ИСПРАВЛЕННЫЙ СПИСОК (БЕЗ ОШИБОК)
+    refresh_opts = [10, 30, 60, 300]
+    refresh = st.select_slider("Обновление (сек)", options=refresh_opts, value=60)
+    min_p = st.slider("Мин. чистый профит (%)", 0.0, 5.0, 0.8)
 
-    st.header("💰 Расчет Прибыли")
-    # Новые поля ввода для объема и комиссии
-    investment_amount = st.number_input("Ваш объем инвестиций (USDT)", 100, 100000, 1000)
-    taker_fee = st.number_input("Taker Fee (%)", 0.0, 0.1, 0.04, step=0.005, format="%.3f")
+    st.header("💰 Калькулятор")
+    invest = st.number_input("Ваш депозит (USDT)", 100, 100000, 1000)
+    fee = st.number_input("Taker Fee % (0.04 средняя)", 0.0, 0.1, 0.04, step=0.005, format="%.3f")
 
     st.header("🔔 Добавить Алерт")
     with st.form("alert_form", clear_on_submit=True):
         in_sym = st.text_input("Монета (напр. BTC)").upper()
         in_buy = st.selectbox("Купить на", EXCHANGES)
         in_sell = st.selectbox("Продать на", EXCHANGES, index=1)
-        in_profit = st.slider("Целевой чистый профит (%)", 0.0, 10.0, 1.0, step=0.1)
-        add_btn = st.form_submit_button("➕ Добавить")
-        
-        if add_btn and in_sym:
-            new_alert = {'symbol': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
-            if new_alert not in st.session_state.alerts:
-                st.session_state.alerts.append(new_alert)
-
+        in_profit = st.slider("Цель: Чистый %", 0.0, 10.0, 1.0, step=0.1)
+        if st.form_submit_button("➕ Добавить"):
+            if in_sym:
+                new_alert = {'sym': in_sym, 'buy': in_buy.upper(), 'sell': in_sell.upper(), 'target': in_profit}
+                if new_alert not in st.session_state.alerts:
+                    st.session_state.alerts.append(new_alert)
 
     if st.session_state.alerts:
         st.subheader("Активные Алерты:")
         for i, a in enumerate(st.session_state.alerts):
-            col_t, col_d = st.columns()
-            col_t.caption(f"{a['symbol']} {a['buy']}->{a['sell']} @ {a['target']}%")
+            col_t, col_d = st.columns([3, 1])
+            col_t.caption(f"{a['sym']} {a['buy']}->{a['sell']} @ {a['target']}%")
             if col_d.button("❌", key=f"del_{i}"):
                 st.session_state.alerts.pop(i)
                 st.rerun()
 
 autorefresh(refresh)
-# Передаем новые параметры в функцию получения данных
-df = get_data(max_s, min_v, taker_fee, investment_amount)
+df = get_data(max_s, min_v, fee, invest)
 
-triggered_now_keys = set()
+triggered_now = set()
 if not df.empty:
-    for i, alert in enumerate(st.session_state.alerts):
-        # Теперь ищем совпадение по столбцу 'Чистая Прибыль (%)'
-        match = df[
-            (df['Инструмент'] == alert['symbol']) & 
-            (df['КУПИТЬ'] == alert['buy']) & 
-            (df['ПРОДАТЬ'] == alert['sell'])
-        ]
-        
+    for alert in st.session_state.alerts:
+        match = df[(df['Инструмент'] == alert['sym']) & (df['КУПИТЬ'] == alert['buy']) & (df['ПРОДАТЬ'] == alert['sell'])]
         if not match.empty:
-            # cur_p = match['Профит (%)'].values[0] # Старый gross profit
-            cur_net_p = match['Чистая Прибыль (%)'].values # Новый net profit
-            
-            if round(cur_net_p, 3) >= alert['target']:
-                triggered_now_keys.add(f"{alert['symbol']}|{alert['buy']}|{alert['sell']}")
-                play_sound()
-                st.sidebar.success(f"🎯 СРАБОТАЛ (Чистый): {alert['symbol']} {cur_net_p}%")
-                # Алерты остаются в списке до ручного удаления
+            cur_net_p = match['Чистый %'].iloc[0]
+            alert_key = f"{alert['sym']}_{alert['buy']}_{alert['sell']}_{alert['target']}"
+            if round(cur_net_p, 2) >= alert['target']:
+                triggered_now.add(f"{alert['sym']}|{alert['buy']}|{alert['sell']}")
+                if alert_key not in st.session_state.triggered_alerts:
+                    st.session_state.triggered_alerts[alert_key] = True
+                    play_sound()
+                    st.sidebar.success(f"🎯 СИГНАЛ: {alert['sym']} {cur_net_p}%")
+            else:
+                if alert_key in st.session_state.triggered_alerts:
+                    del st.session_state.triggered_alerts[alert_key]
 
-    def highlight_rows(row):
+    def highlight(row):
         key = f"{row['Инструмент']}|{row['КУПИТЬ']}|{row['ПРОДАТЬ']}"
-        if key in triggered_now_keys:
-            return ['background-color: #d4edda; color: #155724; font-weight: bold'] * len(row)
-        return [''] * len(row)
+        return ['background-color: #d4edda; color: #155724; font-weight: bold'] * len(row) if key in triggered_now else [''] * len(row)
 
-    st.subheader("Актуальные возможности (Чистая Прибыль)")
-    # Фильтруем таблицу по минимальному чистому профиту
-    display_df = df[df['Чистая Прибыль (%)'] >= min_p].sort_values('Чистая Прибыль (%)', ascending=False)
-    
+    st.subheader("Найденные возможности (с учетом комиссий)")
+    display_df = df[df['Чистый %'] >= min_p].sort_values('Чистый %', ascending=False)
     if not display_df.empty:
-        st.dataframe(
-            display_df.style.apply(highlight_rows, axis=1), 
-            use_container_width=True,
-            column_config={
-                'Чистая Прибыль ($)': st.column_config.NumberColumn(format="$%.2f")
-            }
-        )
+        st.dataframe(display_df.style.apply(highlight, axis=1), use_container_width=True)
     else:
-        st.info("Нет связок, соответствующих фильтру чистого профита.")
-else:
-    st.warning("Данные не получены.")
+        st.info("Связок с таким чистым профитом пока нет.")
 
 st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}. Не забудьте кликнуть по странице!")
