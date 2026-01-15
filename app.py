@@ -2,142 +2,205 @@ import streamlit as st
 import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
+import time
 
-# --- Настройка страницы ---
-st.set_page_config(page_title="Funding Arbitrage 2026", layout="wide")
+# Инициализация состояний
+if 'alerts' not in st.session_state:
+    st.session_state['alerts'] = []
+if 'triggered_alerts' not in st.session_state:
+    st.session_state['triggered_alerts'] = {}
+if 'last_rerun' not in st.session_state:
+    st.session_state.last_rerun = time.time()
 
-# Функция звука из вашего рабочего варианта (JS)
-def play_sound():
-    sound_js = """
-        <script>
-        var context = new (window.AudioContext || window.webkitAudioContext)();
-        var oscillator = context.createOscillator();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(523.25, context.currentTime); 
-        oscillator.connect(context.destination);
-        oscillator.start();
-        setTimeout(function() { oscillator.stop(); }, 500); 
-        </script>
-    """
-    components.html(sound_js, height=0)
+# Настройка страницы
+st.set_page_config(page_title="Arbitrage 2026 Pro", layout="wide")
 
-def autorefresh(interval_seconds):
-    if interval_seconds > 0:
-        components.html(
-            f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
-            height=0,
-        )
+# ФУНКЦИЯ ЗВУКА
+def play_sound_html():
+    sound_url = "https://assets.mixkit.co/sfx/preview/mixkit-digital-clock-digital-alarm-buzzer-989.mp3"
+    sound_html = f"""<audio autoplay style="display:none;">
+<source src="{sound_url}" type="audio/mpeg">
+Your browser does not support the audio element.
+</audio>"""
+    components.html(sound_html, height=0)
 
-# Список бирж (поддерживающих фьючерсы)
-EXCHANGES = ['okx', 'bybit', 'binance', 'bitget', 'gateio']
+# Список бирж и базовая валюта
+EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
+BASE_CURRENCY = 'USDT'
 
-@st.cache_data(ttl=20)
-def get_funding_data(min_funding, max_entry_spread):
-    results = []
-    
+@st.cache_data(ttl=12)
+def get_data(max_spread_pct, min_volume_usdt):
+    data = []
+    prices_by_ex = {}
+
     for ex_id in EXCHANGES:
         try:
-            # Инициализация биржи для фьючерсов
             ex = getattr(ccxt, ex_id)({
                 'enableRateLimit': True,
-                'options': {'defaultType': 'swap'}
+                'options': {'defaultType': 'future'}
             })
-            
-            # 1. Получаем все ставки финансирования
-            funding_data = ex.fetch_funding_rates()
-            
-            # 2. Получаем тикеры для проверки спреда (Spot vs Futures)
-            # Для этого создаем второй объект биржи для спота
-            ex_spot = getattr(ccxt, ex_id)({'options': {'defaultType': 'spot'}})
-            spot_tickers = ex_spot.fetch_tickers()
-            futures_tickers = ex.fetch_tickers()
-            
-            for symbol, data in funding_data.items():
-                funding_rate = data.get('fundingRate', 0)
-                
-                # Фильтруем только высокие положительные ставки (платит шортистам)
-                if funding_rate >= (min_funding / 100):
-                    
-                    # Проверяем наличие цен и на споте и на фьючерсах на ОДНОЙ бирже
-                    # (Внутрибиржевой арбитраж фандинга самый безопасный)
-                    base_sym = symbol.split(':')[0] # BTC/USDT
-                    if base_sym in spot_tickers and symbol in futures_tickers:
-                        
-                        spot_ask = spot_tickers[base_sym]['ask']      # Цена покупки на споте
-                        futures_bid = futures_tickers[symbol]['bid']  # Цена шорта на фьючерсах
-                        
-                        if spot_ask and futures_bid:
-                            # Спред входа: сколько мы теряем при мгновенном открытии
-                            entry_spread = ((spot_ask - futures_bid) / spot_ask) * 100
-                            
-                            if entry_spread <= max_entry_spread:
-                                # Сколько выплат фандинга нужно для окупаемости спреда (обычно 3 выплаты в сутки)
-                                # Упрощенно: entry_spread / (funding_rate * 100)
-                                breakeven_hours = (entry_spread / (funding_rate * 100)) * 8
-                                
-                                results.append({
-                                    'Биржа': ex_id.upper(),
-                                    'Символ': base_sym,
-                                    'Funding (%)': round(funding_rate * 100, 4),
-                                    'APR (%)': round(funding_rate * 100 * 3 * 365, 2),
-                                    'Спред входа (%)': round(entry_spread, 3),
-                                    'Окупаемость (часов)': round(breakeven_hours, 1),
-                                    'Next Pay': data.get('datetime', 'N/A')[-8:-3]
-                                })
+            tickers = ex.fetch_tickers()
+
+            cleaned = {}
+            for symbol, ticker in tickers.items():
+                if BASE_CURRENCY not in symbol:
+                    continue
+                vol = ticker.get('quoteVolume') or ticker.get('baseVolume') or 0
+                bid = ticker.get('bid')
+                ask = ticker.get('ask')
+
+                if bid and ask and bid > 0 and vol >= min_volume_usdt:
+                    spread_pct = ((ask - bid) / bid) * 100
+                    if spread_pct <= max_spread_pct:
+                        clean_sym = symbol.split('/')[0].split(':')[0].replace(f":{BASE_CURRENCY}", "")
+                        cleaned[clean_sym] = {'bid': bid, 'ask': ask, 'vol': vol}
+
+            if cleaned:
+                prices_by_ex[ex_id] = cleaned
+
         except Exception as e:
             continue
+
+    all_symbols = set()
+    for prices in prices_by_ex.values():
+        all_symbols.update(prices.keys())
+
+    for sym in all_symbols:
+        exchanges_with_sym = [ex for ex in prices_by_ex if sym in prices_by_ex[ex]]
+        if len(exchanges_with_sym) < 2:
+            continue
+
+        bids = {ex: prices_by_ex[ex][sym]['bid'] for ex in exchanges_with_sym}
+        asks = {ex: prices_by_ex[ex][sym]['ask'] for ex in exchanges_with_sym}
+
+        buy_ex = min(asks, key=asks.get)
+        sell_ex = max(bids, key=bids.get)
+
+        p_buy = asks[buy_ex]
+        p_sell = bids[sell_ex]
+
+        if p_sell > p_buy:
+            profit_pct = ((p_sell - p_buy) / p_buy) * 100
+            data.append({
+                'Инструмент': sym,
+                'КУПИТЬ': buy_ex.upper(),
+                'ПРОДАТЬ': sell_ex.upper(),
+                'Профит (%)': round(profit_pct, 3)
+            })
+
+    return pd.DataFrame(data)
+
+# ── ИНТЕРФЕЙС ────────────────────────────────────────────────
+
+st.sidebar.header("⚙️ Настройки")
+
+max_spread = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.5, 0.35, 0.05)
+min_vol = st.sidebar.number_input("Мин. объём (USDT)", 0, 20_000_000, 80_000, step=10000)
+
+refresh = st.select_slider(
+    "Обновление (сек)",
+    options=[10, 15, 20, 30, 45, 60, 90, 120, 180, 300],
+    value=30
+)
+
+min_profit_filter = st.sidebar.slider("Мин. профит в таблице (%)", 0.0, 8.0, 0.4, 0.1)
+
+# ── АЛЕРТЫ ───────────────────────────────────────────────────
+
+st.sidebar.header("🔔 Управление алертами")
+
+col1, col2 = st.sidebar.columns([3, 2])
+with col1:
+    alert_symbol = st.text_input("Монета (напр. BTC)", value="BTC").strip().upper()
+with col2:
+    alert_target = st.number_input("Целевой профит %", 0.1, 10.0, 0.8, step=0.1)
+
+col_buy, col_sell = st.sidebar.columns(2)
+with col_buy:
+    alert_buy_ex = st.selectbox("Купить на", EXCHANGES, index=0).upper()
+with col_sell:
+    alert_sell_ex = st.selectbox("Продать на", EXCHANGES, index=1).upper()
+
+if st.sidebar.button("➕ Добавить алерт", use_container_width=True):
+    if alert_symbol:
+        new_alert = {
+            'symbol': alert_symbol,
+            'buy': alert_buy_ex,
+            'sell': alert_sell_ex,
+            'target': alert_target
+        }
+        if new_alert not in st.session_state.alerts:
+            st.session_state.alerts.append(new_alert)
+            st.rerun()
+
+# Отображение и удаление алертов
+if st.session_state.alerts:
+    st.sidebar.subheader("Активные алерты")
+    
+    to_delete = None
+    for i, alert in enumerate(st.session_state.alerts):
+        label = f"{alert['symbol']}  {alert['buy']} → {alert['sell']}  ≥ {alert['target']}%"
+        if st.sidebar.button(f"❌ {label}", key=f"del_alert_{i}"):
+            to_delete = i
+    
+    if to_delete is not None:
+        st.session_state.alerts.pop(to_delete)
+        st.rerun()
+
+# ── ОСНОВНАЯ ЛОГИКА ─────────────────────────────────────────
+
+# Авто-обновление через st.rerun()
+now = time.time()
+if now - st.session_state.last_rerun >= refresh:
+    st.session_state.last_rerun = now
+    st.rerun()
+
+df = get_data(max_spread, min_vol)
+
+triggered_now = set()
+
+if not df.empty:
+    for alert in st.session_state.alerts:
+        match = df[
+            (df['Инструмент'] == alert['symbol']) &
+            (df['КУПИТЬ'] == alert['buy']) &
+            (df['ПРОДАТЬ'] == alert['sell'])
+        ]
+        
+        if not match.empty:
+            current_profit = match['Профит (%)'].iloc[0]
+            key = f"{alert['symbol']}_{alert['buy']}_{alert['sell']}_{alert['target']}"
             
-    return pd.DataFrame(results)
+            if current_profit >= alert['target']:
+                triggered_now.add(f"{alert['symbol']}|{alert['buy']}|{alert['sell']}")
+                
+                if key not in st.session_state.triggered_alerts:
+                    st.session_state.triggered_alerts[key] = True
+                    play_sound_html()
+                    st.toast(f"🔔 СИГНАЛ: {alert['symbol']} → {round(current_profit,2)}%", icon="🚨")
+            else:
+                st.session_state.triggered_alerts.pop(key, None)
 
-# --- ИНТЕРФЕЙС ---
-st.title("💸 Скринер Арбитража Фандинга (Spot-Futures)")
-st.info("Стратегия: BUY Spot + SELL Futures. Зарабатываем на положительной ставке Funding.")
+    def highlight_row(row):
+        key = f"{row['Инструмент']}|{row['КУПИТЬ']}|{row['ПРОДАТЬ']}"
+        if key in triggered_now:
+            return ['background-color: #d4edda; color: #0f5132; font-weight: bold'] * len(row)
+        return [''] * len(row)
 
-with st.sidebar:
-    st.header("⚙️ Фильтры")
-    min_f = st.number_input("Мин. Funding за период (%)", 0.001, 1.0, 0.01, format="%.3f")
-    max_s = st.slider("Макс. спред входа (%)", -1.0, 2.0, 0.1)
+    st.subheader("Найденные связки")
     
-    refresh_options = [30, 60, 300, 600]
-    ref_sec = st.select_slider("Обновление (сек)", options=refresh_options, value=60)
+    display_df = df[df['Профит (%)'] >= min_profit_filter].sort_values('Профит (%)', ascending=False)
     
-    st.header("🔔 Алерт")
-    alert_val = st.number_input("Звук если APR > %", 10, 1000, 70)
-    
-autorefresh(ref_sec)
-
-data_df = get_funding_data(min_f, max_s)
-
-if not data_df.empty:
-    # Сортировка по доходности
-    data_df = data_df.sort_values('APR (%)', ascending=False)
-    
-    # Проверка на алерт
-    top_apr = data_df['APR (%)'].iloc[0]
-    if top_apr >= alert_val:
-        play_sound()
-        st.toast(f"🚀 Найдена доходность: {top_apr}% APR")
-
-    # Отображение
-    st.subheader("Найденные возможности")
-    
-    # Красивое форматирование таблицы
-    def color_apr(val):
-        color = 'green' if val > 30 else 'white'
-        return f'color: {color}'
-
-    st.dataframe(
-        data_df.style.applymap(color_apr, subset=['APR (%)']),
-        use_container_width=True
-    )
-    
-    st.markdown("""
-    **Как читать таблицу:**
-    * **APR (%)**: Прогнозируемая годовая доходность, если ставка не изменится.
-    * **Спред входа**: Разница между покупкой спота и шортом. Чем ниже, тем лучше.
-    * **Окупаемость**: Через сколько часов доход от выплат фандинга полностью покроет ваши затраты на вход (спред).
-    """)
+    if not display_df.empty:
+        st.dataframe(
+            display_df.style.apply(highlight_row, axis=1),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Нет связок с профитом выше выбранного порога.")
 else:
-    st.warning("Подходящих связок не найдено. Попробуйте увеличить 'Макс. спред входа' или уменьшить 'Мин. Funding'.")
+    st.warning("Не удалось загрузить данные ни с одной биржи.")
 
-st.caption(f"Данные актуальны на 2026 год. Последнее обновление: {pd.Timestamp.now().strftime('%H:%M:%S')}")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}   ·   Кликните по странице, если звук не воспроизводится")
+
