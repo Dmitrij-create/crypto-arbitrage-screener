@@ -102,7 +102,7 @@ with st.sidebar:
     ref_sec = st.select_slider("Обновление (сек)", options=refresh_options, value=60)
     
     st.header("🔔 Алерт")
-    alert_val = st.number_input("Звук если APR > %", 10, 1000, 50)
+    alert_val = st.number_input("Звук если APR > %", 10, 1000, 70)
     
 autorefresh(ref_sec)
 
