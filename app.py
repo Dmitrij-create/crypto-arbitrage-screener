@@ -148,7 +148,7 @@ with st.sidebar:
     st.header("🔄 Тип Арбитража")
     col_t1, col_t2 = st.columns(2)
     with col_t1:
-        type_buy_input = st.selectbox("Покупка", options=['Futures', 'Spot'], index=1)
+        type_buy_input = st.selectbox("Покупка", options=['Futures', 'Spot'], index=0)
     with col_t2:
         type_sell_input = st.selectbox("Продажа", options=['Futures', 'Spot'], index=0)
 
@@ -160,7 +160,7 @@ with st.sidebar:
     refresh = st.select_slider("Обновление (сек)", options=refresh_options, value=60)
 
     st.header("💰 Параметры сделки")
-    invest = st.number_input("Сумма (USDT)", 10, 100000, 100)
+    invest = st.number_input("Сумма (USDT)", 10, 100000, 50)
     fee = st.number_input("Taker Fee %", 0.0, 0.1, 0.05, format="%.3f")
 
     st.header("🔔 Алерты (L2)")
