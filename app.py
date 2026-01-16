@@ -124,7 +124,7 @@ st.info("Скринер ищет разницу цен между бессроч
 
 with st.sidebar:
     st.header("Настройки")
-    invest = st.number_input("Объем позиции (USDT)", 100, 100000, 1000)
+    invest = st.number_input("Объем позиции (USDT)", 100, 100000, 50)
     fee = st.number_input("Taker Fee %", 0.0, 0.1, 0.04, step=0.01, format="%.3f")
     min_v = st.number_input("Мин. 24h Объем (USDT)", 0, 50000000, 500000)
     
@@ -133,7 +133,7 @@ with st.sidebar:
     refresh = st.select_slider("Обновление (сек)", options=refresh_options, value=30)
     
     st.header("Алерты")
-    alert_p = st.slider("Звук если профит > %", 0.1, 20.0, 20.0)
+    alert_p = st.slider("Звук если профит > %", 0.1, 20.0, 2.0)
 
 autorefresh(refresh)
 
