@@ -160,7 +160,7 @@ with st.sidebar:
     refresh = st.select_slider("Обновление (сек)", options=refresh_options, value=60)
 
     st.header("💰 Параметры сделки")
-    invest = st.number_input("Сумма (USDT)", 10, 100000, 25)
+    invest = st.number_input("Сумма (USDT)", 10, 100000, 10)
     fee = st.number_input("Taker Fee %", 0.0, 0.1, 0.05, format="%.3f")
 
     st.header("🔔 Алерты (L2)")
