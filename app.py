@@ -148,7 +148,7 @@ with st.sidebar:
     st.header("🔄 Тип Арбитража")
     col_t1, col_t2 = st.columns(2)
     with col_t1:
-        type_buy_input = st.selectbox("Покупка", options=['Futures', 'Spot'], index=0)
+        type_buy_input = st.selectbox("Покупка", options=['Futures', 'Spot'], index=1)
     with col_t2:
         type_sell_input = st.selectbox("Продажа", options=['Futures', 'Spot'], index=0)
 
