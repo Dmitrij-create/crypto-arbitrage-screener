@@ -133,7 +133,7 @@ with st.sidebar:
     refresh = st.select_slider("Обновление (сек)", options=refresh_options, value=30)
     
     st.header("Алерты")
-    alert_p = st.slider("Звук если профит > %", 0.1, 3.0, 0.4)
+    alert_p = st.slider("Звук если профит > %", 0.1, 20.0, 20.0)
 
 autorefresh(refresh)
 
