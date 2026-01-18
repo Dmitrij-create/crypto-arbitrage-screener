@@ -66,7 +66,7 @@ def get_all_data(min_spread, min_vol):
 
 # --- UI ---
 st.sidebar.header("Фильтры 2026")
-s_spread = st.sidebar.slider("Мин. спред %", 0.0, 1.0, 0.05, step=0.01) # Снизил до 0.05 для теста
+s_spread = st.sidebar.slider("Мин. спред %", 0.0, 1.0, 0.1, step=0.01) # Снизил до 0.05 для теста
 s_vol = st.sidebar.number_input("Мин. объем ($)", 0, 1000000, 10000)
 
 if st.sidebar.button("SCAN NOW"):
