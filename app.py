@@ -15,7 +15,7 @@ def autorefresh(interval_seconds):
         )
 
 # Только топовые биржи для фьючерсного арбитража (без переводов)
-CEX_LIST = ['binance', 'bybit', 'okx', 'bitget', 'mexc']
+CEX_LIST = ['bingx', 'gateio', 'okx', 'bitget', 'mexc']
 
 @st.cache_data(ttl=5)
 def get_futures_spreads(min_spread, min_vol):
@@ -87,7 +87,7 @@ st.markdown("Скринер для открытия встречных пози�
 with st.sidebar:
     st.header("Настройки")
     interval = st.selectbox("Автообновление", [10, 15, 30, 60, 120], index=2)
-    min_s = st.slider("Мин. спред %", 0.01, 1.0, 0.1)
+    min_s = st.slider("Мин. спред %", 0.01, 1.0, 0.8)
     min_v = st.number_input("Мин. объем 24ч ($)", 0, 100000000, 100000)
     if st.button("Обновить кеш"):
         st.cache_data.clear()
