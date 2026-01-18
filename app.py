@@ -18,54 +18,70 @@ def autorefresh(interval):
         components.html(f"<script>setTimeout(()=>window.parent.location.reload(), {interval*1000});</script>", height=0)
 
 @st.cache_data(ttl=10)
-def get_dex_cex_data(invest_amount, min_diff):
+
+             @st.cache_data(ttl=10)
+def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
     results = []
     
-    # 1. Получаем данные с Hyperliquid (DEX) через CCXT (поддерживается в 2026)
     try:
-        hyperliquid = ccxt.hyperliquid({'enableRateLimit': True})
-        dex_tickers = hyperliquid.fetch_tickers()
+        # 1. Загружаем DEX (Hyperliquid)
+        dex_ex = ccxt.hyperliquid()
+        dex_tickers = dex_ex.fetch_tickers()
+        st.sidebar.write(f"DEX пар загружено: {len(dex_tickers)}") # Для теста
     except Exception as e:
-        st.error(f"Ошибка подключения к Hyperliquid: {e}")
+        st.error(f"Ошибка DEX: {e}")
         return pd.DataFrame()
 
-    # 2. Получаем данные с CEX
+    # 2. Перебираем CEX
     for cex_id in CEX_LIST:
         try:
-            cex_obj = getattr(ccxt, cex_id)({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
-            cex_tickers = cex_obj.fetch_tickers()
+            cex_ex = getattr(ccxt, cex_id)({'options': {'defaultType': 'swap'}})
+            cex_tickers = cex_ex.fetch_tickers()
             
-            # 3. Сравниваем пары
-            for symbol, dex_t in dex_tickers.items():
-                # Приводим к общему формату (например, BTC/USDT:USDT)
-                clean_sym = symbol.split(':')[0].replace('/USDC', '').replace('/USDT', '')
+            for dex_symbol, dex_t in dex_tickers.items():
+                # --- УЛУЧШЕННАЯ НОРМАЛИЗАЦИЯ ИМЕНИ ---
+                # Превращаем "BTC/USDC:USDC" или "BTC-P" в "BTC"
+                base_name = dex_symbol.split('/')[0].split('-')[0].split(':')[0].upper()
                 
-                # Ищем эту же монету на CEX
-                for cex_sym, cex_t in cex_tickers.items():
-                    if clean_sym in cex_sym:
-                        p_dex = (dex_t['ask'] + dex_t['bid']) / 2
-                        p_cex = (cex_t['ask'] + cex_t['bid']) / 2
-                        
-                        diff = ((p_cex - p_dex) / p_dex) * 100
-                        
-                        # Арбитражная ситуация
-                        if abs(diff) > min_diff:
-                            buy_place = "Hyperliquid (DEX)" if diff > 0 else cex_id.upper()
-                            sell_place = cex_id.upper() if diff > 0 else "Hyperliquid (DEX)"
-                            
-                            results.append({
-                                'Asset': clean_sym,
-                                'Buy At': buy_place,
-                                'Sell At': sell_place,
-                                'Spread %': round(abs(diff), 3),
-                                'DEX Price': p_dex,
-                                'CEX Price': p_cex,
-                                'Est. Profit $': round(invest_amount * (abs(diff)/100), 2)
-                            })
-        except:
+                # Ищем совпадение на CEX (ищем ключ, содержащий base_name)
+                # Например, ищем "BTC" в "BTC/USDT:USDT"
+                cex_match = None
+                for s in cex_tickers.keys():
+                    if s.startswith(base_name + "/") or s.startswith(base_name + ":"):
+                        cex_match = s
+                        break
+                
+                if cex_match:
+                    cex_t = cex_tickers[cex_match]
+                    
+                    # Проверка объема (иногда на DEX он меньше, берем CEX)
+                    vol = cex_t.get('quoteVolume', 0)
+                    if vol < min_v_filter:
+                        continue
+
+                    p_dex = (dex_t['ask'] + dex_t['bid']) / 2
+                    p_cex = (cex_t['ask'] + cex_t['bid']) / 2
+                    
+                    if p_dex == 0 or p_cex == 0: continue
+                    
+                    diff = ((p_cex - p_dex) / p_dex) * 100
+                    
+                    if abs(diff) >= min_diff:
+                        results.append({
+                            'Монета': base_name,
+                            'Купить': "DEX" if diff > 0 else cex_id.upper(),
+                            'Продать': cex_id.upper() if diff > 0 else "DEX",
+                            'Спред %': round(abs(diff), 3),
+                            'DEX Цена': f"{p_dex:.4f}",
+                            'CEX Цена': f"{p_cex:.4f}",
+                            'Объем CEX $': int(vol)
+                        })
+        except Exception as e:
+            st.sidebar.error(f"Ошибка {cex_id}: {e}")
             continue
             
     return pd.DataFrame(results)
+
 
 # --- UI ---
 st.title("🔗 DEX/CEX Perp Arbitrage 2026")
