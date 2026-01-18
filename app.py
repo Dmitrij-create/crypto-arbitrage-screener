@@ -18,8 +18,7 @@ def autorefresh(interval):
         components.html(f"<script>setTimeout(()=>window.parent.location.reload(), {interval*1000});</script>", height=0)
 
 @st.cache_data(ttl=10)
-
-             @st.cache_data(ttl=10)
+             
 def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
     results = []
     
