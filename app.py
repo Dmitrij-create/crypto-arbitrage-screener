@@ -79,9 +79,9 @@ st.title("🔗 DEX/CEX Perp Arbitrage 2026")
 
 with st.sidebar:
     st.header("Параметры")
-    amount = st.number_input("Объем сделки ($)", 10, 50000, 1000)
+    amount = st.number_input("Объем сделки ($)", 10, 50000, 50)
     min_spread = st.slider("Мин. спред %", 0.01, 2.0, 0.1)
-    min_vol = st.number_input("Мин. объем CEX ($)", 0, 100000000, 100000)
+    min_vol = st.number_input("Мин. объем CEX ($)", 0, 100000000, 50000)
     refresh = st.select_slider("Обновление (сек)", options=[15, 30, 60, 120], value=30)
     if st.button("Обновить вручную"):
         st.rerun()
