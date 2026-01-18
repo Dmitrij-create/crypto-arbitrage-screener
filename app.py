@@ -6,8 +6,7 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="DEX/CEX Arbitrage 2026", layout="wide")
 
 # --- Настройки ---
-# Hyperliquid — лидер DEX Perps в 2026 году. Также можно добавить dYdX или GMX.
-CEX_LIST = ['mexc', 'bitget', 'okx','bingx','gate']
+CEX_LIST = ['mexc', 'bitget', 'okx', 'bingx', 'gateio'] # Исправлено gate на gateio
 BASE_CURRENCY = 'USDT'
 
 def play_sound():
@@ -18,7 +17,6 @@ def autorefresh(interval):
         components.html(f"<script>setTimeout(()=>window.parent.location.reload(), {interval*1000});</script>", height=0)
 
 @st.cache_data(ttl=10)
-             
 def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
     results = []
     
@@ -26,7 +24,6 @@ def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
         # 1. Загружаем DEX (Hyperliquid)
         dex_ex = ccxt.hyperliquid()
         dex_tickers = dex_ex.fetch_tickers()
-        st.sidebar.write(f"DEX пар загружено: {len(dex_tickers)}") # Для теста
     except Exception as e:
         st.error(f"Ошибка DEX: {e}")
         return pd.DataFrame()
@@ -38,12 +35,10 @@ def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
             cex_tickers = cex_ex.fetch_tickers()
             
             for dex_symbol, dex_t in dex_tickers.items():
-                # --- УЛУЧШЕННАЯ НОРМАЛИЗАЦИЯ ИМЕНИ ---
-                # Превращаем "BTC/USDC:USDC" или "BTC-P" в "BTC"
+                # Нормализация имени (извлекаем BTC, ETH и т.д.)
                 base_name = dex_symbol.split('/')[0].split('-')[0].split(':')[0].upper()
                 
-                # Ищем совпадение на CEX (ищем ключ, содержащий base_name)
-                # Например, ищем "BTC" в "BTC/USDT:USDT"
+                # Поиск соответствия на CEX
                 cex_match = None
                 for s in cex_tickers.keys():
                     if s.startswith(base_name + "/") or s.startswith(base_name + ":"):
@@ -52,9 +47,8 @@ def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
                 
                 if cex_match:
                     cex_t = cex_tickers[cex_match]
-                    
-                    # Проверка объема (иногда на DEX он меньше, берем CEX)
                     vol = cex_t.get('quoteVolume', 0)
+                    
                     if vol < min_v_filter:
                         continue
 
@@ -71,52 +65,43 @@ def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
                             'Купить': "DEX" if diff > 0 else cex_id.upper(),
                             'Продать': cex_id.upper() if diff > 0 else "DEX",
                             'Спред %': round(abs(diff), 3),
-                            'DEX Цена': f"{p_dex:.4f}",
-                            'CEX Цена': f"{p_cex:.4f}",
+                            'DEX Цена': round(p_dex, 5),
+                            'CEX Цена': round(p_cex, 5),
                             'Объем CEX $': int(vol)
                         })
         except Exception as e:
-            st.sidebar.error(f"Ошибка {cex_id}: {e}")
             continue
             
     return pd.DataFrame(results)
 
-
 # --- UI ---
 st.title("🔗 DEX/CEX Perp Arbitrage 2026")
-st.markdown("Сравнение цен между **Hyperliquid (L1 DEX)** и основными фьючерсными биржами.")
 
 with st.sidebar:
     st.header("Параметры")
-    amount = st.number_input("Объем сделки ($)", 10, 50000, 10)
-    min_spread = st.slider("Мин. спред %", 0.05, 2.0, 0.2)
-    refresh = st.select_slider("Обновление", options=[15, 30, 60, 120], value=30)
-    if st.button("Проверить сейчас"):
+    amount = st.number_input("Объем сделки ($)", 10, 50000, 1000)
+    min_spread = st.slider("Мин. спред %", 0.01, 2.0, 0.1)
+    min_vol = st.number_input("Мин. объем CEX ($)", 0, 100000000, 100000)
+    refresh = st.select_slider("Обновление (сек)", options=[15, 30, 60, 120], value=30)
+    if st.button("Обновить вручную"):
         st.rerun()
 
 autorefresh(refresh)
 
-with st.spinner("Синхронизация блокчейна и лимитных ордеров..."):
-    df = get_dex_cex_data(amount, min_spread)
+with st.spinner("Сравнение цен Hyperliquid и CEX..."):
+    # ИСПРАВЛЕНО: Передаем 3 аргумента
+    df = get_dex_cex_data(amount, min_spread, min_vol)
 
 if not df.empty:
-    # Сортируем по максимальному профиту
-    df = df.sort_values('Spread %', ascending=False).drop_duplicates(subset=['Asset'])
+    # ИСПРАВЛЕНО: Сортировка по корректному названию колонки 'Монета'
+    df = df.sort_values('Спред %', ascending=False).drop_duplicates(subset=['Монета'])
     
-    # Звуковой алерт на жирный спред
-    if df['Spread %'].max() > 0.5:
+    if df['Спред %'].max() > 0.5:
         play_sound()
-        st.success(f"🚀 Найдена DEX связка: {df['Spread %'].max()}%")
+        st.success(f"🚀 Найдена связка: {df['Спред %'].max()}%")
 
-    st.table(df)
-    
-    st.warning("""
-    **Важно для 2026 года:**
-    1. **Gas Fee**: Работа на DEX требует наличия нативного токена (HYPE или ETH) для оплаты газа.
-    2. **Slippage**: На DEX ликвидность может быть ниже, чем на Binance. Проверяйте размер стакана перед входом.
-    3. **Bridge**: Учитывайте время на перевод средств между CEX и вашим кошельком (Arbitrum/Hyperliquid).
-    """)
+    st.dataframe(df, use_container_width=True)
 else:
-    st.info("Спредов между DEX и CEX выше порога не найдено. Ждем синхронизации...")
+    st.info("Связок не найдено. Попробуйте снизить 'Мин. объем' или 'Мин. спред'.")
 
-st.caption(f"Данные обновлены: {pd.Timestamp.now().strftime('%H:%M:%S')}. Используется Hyperliquid API v1.")
+st.caption(f"Проверка в реальном времени: {pd.Timestamp.now().strftime('%H:%M:%S')} (2026)")
