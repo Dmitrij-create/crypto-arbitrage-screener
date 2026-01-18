@@ -1,16 +1,21 @@
 import streamlit as st
 import ccxt
-import pd
+import pandas as pd  # ИСПРАВЛЕНО ЗДЕСЬ
+import time
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Futures Hedge Scanner 2026", layout="wide")
 
-# Только те биржи, где отличная ликвидность на фьючерсах (Perps)
-CEX_LIST = ['binance', 'bybit', 'okx', 'bitget', 'mexc']
+# --- Функция автообновления через JS ---
+def autorefresh(interval_seconds):
+    if interval_seconds > 0:
+        components.html(
+            f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
+            height=0,
+        )
 
-def autorefresh(interval):
-    if interval > 0:
-        components.html(f"<script>setTimeout(()=>window.parent.location.reload(), {interval*1000});</script>", height=0)
+# Только топовые биржи для фьючерсного арбитража (без переводов)
+CEX_LIST = ['binance', 'bybit', 'okx', 'bitget', 'mexc']
 
 @st.cache_data(ttl=5)
 def get_futures_spreads(min_spread, min_vol):
@@ -18,7 +23,7 @@ def get_futures_spreads(min_spread, min_vol):
     
     # 1. Данные с Hyperliquid (DEX Perp)
     try:
-        dex = ccxt.hyperliquid()
+        dex = ccxt.hyperliquid({'enableRateLimit': True})
         dex_tickers = dex.fetch_tickers()
     except:
         return pd.DataFrame()
@@ -28,13 +33,13 @@ def get_futures_spreads(min_spread, min_vol):
         try:
             cex = getattr(ccxt, cex_id)({
                 'enableRateLimit': True, 
-                'options': {'defaultType': 'swap'} # Строго фьючерсы
+                'options': {'defaultType': 'swap'} 
             })
             cex_tickers = cex.fetch_tickers()
             
             for d_sym, d_tick in dex_tickers.items():
-                # Чистим тикер (BTC/USDC:USDC -> BTC)
-                base = d_sym.split('/').split(':').split('-').upper()
+                # Нормализация тикера: "BTC/USDC:USDC" -> "BTC"
+                base = d_sym.split('/')[0].split(':')[0].split('-')[0].upper()
                 
                 # Ищем фьючерс на CEX (BTC/USDT:USDT)
                 target = next((s for s in cex_tickers.keys() if s.startswith(base + "/")), None)
@@ -45,9 +50,8 @@ def get_futures_spreads(min_spread, min_vol):
                     
                     if vol < min_vol: continue
 
-                    # Цены исполнения (Best Bid / Best Ask)
                     # Вариант 1: Buy DEX (Ask) / Sell CEX (Bid)
-                    if d_tick['ask'] > 0 and c_tick['bid'] > 0:
+                    if d_tick['ask'] and c_tick['bid'] and d_tick['ask'] > 0:
                         spread_1 = ((c_tick['bid'] - d_tick['ask']) / d_tick['ask']) * 100
                         if spread_1 >= min_spread:
                             results.append({
@@ -61,7 +65,7 @@ def get_futures_spreads(min_spread, min_vol):
                             })
 
                     # Вариант 2: Buy CEX (Ask) / Sell DEX (Bid)
-                    if c_tick['ask'] > 0 and d_tick['bid'] > 0:
+                    if c_tick['ask'] and d_tick['bid'] and c_tick['ask'] > 0:
                         spread_2 = ((d_tick['bid'] - c_tick['ask']) / c_tick['ask']) * 100
                         if spread_2 >= min_spread:
                             results.append({
@@ -78,28 +82,27 @@ def get_futures_spreads(min_spread, min_vol):
 
 # --- ИНТЕРФЕЙС ---
 st.title("📊 Futures Hedge Arbitrage 2026")
-st.subheader("Межбиржевой арбитраж без перевода монет (Long/Short)")
+st.markdown("Скринер для открытия встречных позиций на фьючерсах (без перевода монет).")
 
 with st.sidebar:
-    interval = st.selectbox("Автообновление", [10, 30, 60], index=0)
-    min_s = st.slider("Минимальный спред %", 0.05, 1.0, 0.15)
-    min_v = st.number_input("Мин. объем 24ч ($)", 0, 10000000, 500000)
+    st.header("Настройки")
+    interval = st.selectbox("Автообновление", [10, 15, 30, 60, 120], index=1)
+    min_s = st.slider("Мин. спред %", 0.01, 1.0, 0.1)
+    min_v = st.number_input("Мин. объем 24ч ($)", 0, 100000000, 100000)
+    if st.button("Обновить кеш"):
+        st.cache_data.clear()
 
+# Запуск автообновления
 autorefresh(interval)
+
+st.caption(f"Последнее обновление: {time.strftime('%H:%M:%S')} | Интервал: {interval}с")
 
 df = get_futures_spreads(min_s, min_v)
 
 if not df.empty:
-    df = df.sort_values('Спред %', ascending=False)
+    df = df.sort_values('Спред %', ascending=False).drop_duplicates(subset=['Монета', 'LONG (Купить)'])
     st.dataframe(df, use_container_width=True)
-    
-    st.info("""
-    **Инструкция по хедж-арбитражу:**
-    1. У вас должен быть депозит в USDT на обеих биржах.
-    2. Вы **не переводите** монеты. Вы открываете позиции одновременно.
-    3. Когда цена сходится (спред исчезает), вы закрываете обе сделки.
-    """)
 else:
-    st.info("Поиск активных спредов на фьючерсном рынке...")
+    st.info("Поиск активных спредов на рынке фьючерсов...")
 
-st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')} | Только бессрочные контракты (Perpetual)")
+st.caption("Данные: Hyperliquid & Tier-1 CEX | Дата: 18 января 2026")
