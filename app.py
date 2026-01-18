@@ -3,105 +3,82 @@ import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="DEX/CEX Arbitrage 2026", layout="wide")
+st.set_page_config(page_title="Arbitrage Scanner 2026", layout="wide")
 
-# --- Настройки ---
-CEX_LIST = ['mexc', 'bitget', 'okx', 'bingx', 'gateio'] # Исправлено gate на gateio
-BASE_CURRENCY = 'USDT'
+# Биржи для 2026: MEXC и Gate часто имеют самый большой спред к DEX
+CEX_LIST = ['mexc', 'gateio', 'bitget', 'okx', 'bybit']
 
-def play_sound():
-    components.html("<script>var context = new (window.AudioContext || window.webkitAudioContext)(); var osc = context.createOscillator(); osc.connect(context.destination); osc.start(); setTimeout(()=>osc.stop(), 400);</script>", height=0)
-
-def autorefresh(interval):
-    if interval > 0:
-        components.html(f"<script>setTimeout(()=>window.parent.location.reload(), {interval*1000});</script>", height=0)
-
-@st.cache_data(ttl=10)
-def get_dex_cex_data(invest_amount, min_diff, min_v_filter):
-    results = []
+@st.cache_data(ttl=15)
+def get_all_data(min_spread, min_vol):
+    all_results = []
     
+    # 1. Инициализация DEX
     try:
-        # 1. Загружаем DEX (Hyperliquid)
-        dex_ex = ccxt.hyperliquid()
-        dex_tickers = dex_ex.fetch_tickers()
+        dex = ccxt.hyperliquid({'enableRateLimit': True})
+        dex.load_markets() # КРИТИЧНО для 2026 года
+        dex_tickers = dex.fetch_tickers()
+        st.sidebar.success(f"DEX: {len(dex_tickers)} пар получено")
     except Exception as e:
-        st.error(f"Ошибка DEX: {e}")
+        st.sidebar.error(f"DEX Error: {e}")
         return pd.DataFrame()
 
-    # 2. Перебираем CEX
+    # 2. Перебор CEX
     for cex_id in CEX_LIST:
         try:
-            cex_ex = getattr(ccxt, cex_id)({'options': {'defaultType': 'swap'}})
-            cex_tickers = cex_ex.fetch_tickers()
+            cex = getattr(ccxt, cex_id)({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
+            cex.load_markets()
+            cex_tickers = cex.fetch_tickers()
             
-            for dex_symbol, dex_t in dex_tickers.items():
-                # Нормализация имени (извлекаем BTC, ETH и т.д.)
-                base_name = dex_symbol.split('/')[0].split('-')[0].split(':')[0].upper()
+            # Сопоставление
+            for d_sym, d_tick in dex_tickers.items():
+                # Очищаем имя (Hyperliquid часто добавляет :USDC или /USDC)
+                base = d_sym.split('/')[0].split(':')[0].split('-')[0].upper()
                 
-                # Поиск соответствия на CEX
-                cex_match = None
-                for s in cex_tickers.keys():
-                    if s.startswith(base_name + "/") or s.startswith(base_name + ":"):
-                        cex_match = s
-                        break
+                # Ищем похожий символ на CEX
+                target_symbol = next((s for s in cex_tickers.keys() if s.startswith(base + "/")), None)
                 
-                if cex_match:
-                    cex_t = cex_tickers[cex_match]
-                    vol = cex_t.get('quoteVolume', 0)
+                if target_symbol:
+                    c_tick = cex_tickers[target_symbol]
                     
-                    if vol < min_v_filter:
-                        continue
-
-                    p_dex = (dex_t['ask'] + dex_t['bid']) / 2
-                    p_cex = (cex_t['ask'] + cex_t['bid']) / 2
+                    # Цены (средние между bid/ask)
+                    p_dex = (d_tick['ask'] + d_tick['bid']) / 2 if d_tick['ask'] else d_tick['last']
+                    p_cex = (c_tick['ask'] + c_tick['bid']) / 2 if c_tick['ask'] else c_tick['last']
                     
-                    if p_dex == 0 or p_cex == 0: continue
+                    if not p_dex or not p_cex: continue
                     
+                    vol = c_tick.get('quoteVolume', 0)
                     diff = ((p_cex - p_dex) / p_dex) * 100
                     
-                    if abs(diff) >= min_diff:
-                        results.append({
-                            'Монета': base_name,
-                            'Купить': "DEX" if diff > 0 else cex_id.upper(),
-                            'Продать': cex_id.upper() if diff > 0 else "DEX",
-                            'Спред %': round(abs(diff), 3),
-                            'DEX Цена': round(p_dex, 5),
-                            'CEX Цена': round(p_cex, 5),
-                            'Объем CEX $': int(vol)
+                    if abs(diff) >= min_spread and vol >= min_vol:
+                        all_results.append({
+                            'Asset': base,
+                            'Buy': "DEX" if diff > 0 else cex_id.upper(),
+                            'Sell': cex_id.upper() if diff > 0 else "DEX",
+                            'Spread %': round(abs(diff), 3),
+                            'DEX Price': round(p_dex, 6),
+                            'CEX Price': round(p_cex, 6),
+                            'Vol 24h ($)': int(vol)
                         })
         except Exception as e:
             continue
-            
-    return pd.DataFrame(results)
+
+    return pd.DataFrame(all_results)
 
 # --- UI ---
-st.title("🔗 DEX/CEX Perp Arbitrage 2026")
+st.sidebar.header("Фильтры 2026")
+s_spread = st.sidebar.slider("Мин. спред %", 0.0, 1.0, 0.05, step=0.01) # Снизил до 0.05 для теста
+s_vol = st.sidebar.number_input("Мин. объем ($)", 0, 1000000, 10000)
 
-with st.sidebar:
-    st.header("Параметры")
-    amount = st.number_input("Объем сделки ($)", 10, 50000, 50)
-    min_spread = st.slider("Мин. спред %", 0.01, 2.0, 0.1)
-    min_vol = st.number_input("Мин. объем CEX ($)", 0, 100000000, 50000)
-    refresh = st.select_slider("Обновление (сек)", options=[15, 30, 60, 120], value=30)
-    if st.button("Обновить вручную"):
-        st.rerun()
+if st.sidebar.button("SCAN NOW"):
+    st.cache_data.clear() # Очистка кеша для свежих данных
 
-autorefresh(refresh)
-
-with st.spinner("Сравнение цен Hyperliquid и CEX..."):
-    # ИСПРАВЛЕНО: Передаем 3 аргумента
-    df = get_dex_cex_data(amount, min_spread, min_vol)
+df = get_all_data(s_spread, s_vol)
 
 if not df.empty:
-    # ИСПРАВЛЕНО: Сортировка по корректному названию колонки 'Монета'
-    df = df.sort_values('Спред %', ascending=False).drop_duplicates(subset=['Монета'])
-    
-    if df['Спред %'].max() > 0.5:
-        play_sound()
-        st.success(f"🚀 Найдена связка: {df['Спред %'].max()}%")
-
+    df = df.sort_values('Spread %', ascending=False).drop_duplicates(subset=['Asset'])
+    st.success(f"Найдено {len(df)} потенциальных связок")
     st.dataframe(df, use_container_width=True)
 else:
-    st.info("Связок не найдено. Попробуйте снизить 'Мин. объем' или 'Мин. спред'.")
+    st.warning("Связки не найдены. Попробуйте поставить 'Мин. спред' на 0.01 для проверки связи.")
 
-st.caption(f"Проверка в реальном времени: {pd.Timestamp.now().strftime('%H:%M:%S')} (2026)")
+st.caption(f"Текущее время системы: {pd.Timestamp.now()} | CCXT Version: {ccxt.__version__}")
