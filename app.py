@@ -112,7 +112,7 @@ def get_futures_data(min_vol, taker_fee, invest_amount):
 st.title("📉 Futures Arbitrage + Funding 2026")
 
 with st.sidebar:
-    invest = st.number_input("Объем (USDT)", 10, 100000, 50)
+    invest = st.number_input("Объем (USDT)", 10, 100000, 10)
     fee = st.number_input("Taker Fee %", 0.0, 0.1, 0.05, format="%.3f")
     min_v = st.number_input("Мин. 24h Объем", 0, 100000000, 10000)
     refresh = st.select_slider("Обновление", options=[15, 30, 60, 120], value=30)
