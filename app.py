@@ -73,7 +73,7 @@ st.markdown("Сравнение цен между **Hyperliquid (L1 DEX)** и о
 
 with st.sidebar:
     st.header("Параметры")
-    amount = st.number_input("Объем сделки ($)", 10, 50000, 50)
+    amount = st.number_input("Объем сделки ($)", 10, 50000, 10)
     min_spread = st.slider("Мин. спред %", 0.05, 2.0, 0.2)
     refresh = st.select_slider("Обновление", options=[15, 30, 60, 120], value=30)
     if st.button("Проверить сейчас"):
