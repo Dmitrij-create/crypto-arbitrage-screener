@@ -88,7 +88,7 @@ with st.sidebar:
     st.header("Настройки")
     interval = st.selectbox("Автообновление", [10, 15, 30, 60, 120], index=2)
     min_s = st.slider("Мин. спред %", 0.01, 1.0, 0.8)
-    min_v = st.number_input("Мин. объем 24ч ($)", 0, 100000000, 100000)
+    min_v = st.number_input("Мин. объем 24ч ($)", 0, 100000000, 50000)
     if st.button("Обновить кеш"):
         st.cache_data.clear()
 
