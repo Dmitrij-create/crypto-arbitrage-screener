@@ -3,150 +3,121 @@ import ccxt
 import pandas as pd
 import streamlit.components.v1 as components
 
-# --- Инициализация состояний ---
-if 'alerts' not in st.session_state:
-    st.session_state['alerts'] = []
+# Настройка страницы
+st.set_page_config(page_title="Futures Arbitrage Sound", layout="wide")
 
-st.set_page_config(page_title="Futures Arbitrage 2026", layout="wide")
-
-# Функция звука
+# Функция для проигрывания звука через HTML/JavaScript
 def play_sound():
+    # Используем JavaScript для принудительного воспроизведения системного звука (работает надежнее внешних MP3)
     sound_js = """
         <script>
         var context = new (window.AudioContext || window.webkitAudioContext)();
         var oscillator = context.createOscillator();
         oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(440, context.currentTime); 
+        oscillator.frequency.setValueAtTime(440, context.currentTime); // Частота звука
         oscillator.connect(context.destination);
         oscillator.start();
-        setTimeout(function() { oscillator.stop(); }, 500); 
+        setTimeout(function() {
+            oscillator.stop();
+        }, 500); // Длительность 0.5 секунды
         </script>
     """
     components.html(sound_js, height=0)
 
 # Функция автообновления
 def autorefresh(interval_seconds):
-    if interval_seconds > 0:
-        components.html(
-            f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
-            height=0,
-        )
+    components.html(
+        f"<script>setTimeout(function() {{ window.parent.location.reload(); }}, {interval_seconds * 1000});</script>",
+        height=0,
+    )
 
-# Список бирж (актуальные для фьючерсов в 2026)
-EXCHANGES = ['binance', 'okx', 'bybit', 'mexc', 'gateio', 'bitget']
+EXCHANGES = ['gateio', 'okx', 'mexc', 'bingx', 'bitget']
 BASE_CURRENCY = 'USDT'
 
-def get_l2_price(ex_obj, symbol, side, amount_usdt):
-    """Рассчитывает цену исполнения L2 на фьючерсном стакане"""
-    try:
-        order_book = ex_obj.fetch_order_book(symbol, 10)
-        orders = order_book['asks'] if side == 'buy' else order_book['bids']
-        accum_usdt, accum_crypto = 0, 0
-        for price, amount in orders:
-            vol = price * amount
-            if accum_usdt + vol >= amount_usdt:
-                needed = amount_usdt - accum_usdt
-                accum_crypto += needed / price
-                return amount_usdt / accum_crypto
-            accum_crypto += amount
-            accum_usdt += vol
-        return None
-    except: return None
-
-@st.cache_data(ttl=15)
-def get_data(min_vol, taker_fee, invest_amount):
+@st.cache_data(ttl=10)
+def get_data(max_spread, min_vol):
     data = []
-    prices_ex = {}
-    objs = {}
+    prices_by_ex = {}
+    
+    # st.sidebar.info("Сканирование стаканов (Bid/Ask)...") # Закомментировал, чтобы не мешать логам
 
-    # 1. Сбор тикеров ТОЛЬКО для фьючерсного рынка
     for ex_id in EXCHANGES:
         try:
-            # Принудительно устанавливаем тип swap (фьючерсы)
-            ex_obj = getattr(ccxt, ex_id)({
-                'enableRateLimit': True, 
-                'timeout': 7000,
-                'options': {'defaultType': 'swap'} 
-            })
-            objs[ex_id] = ex_obj
+            ex_obj = getattr(ccxt, ex_id)({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
             tickers = ex_obj.fetch_tickers()
-            
             cleaned = {}
             for s, t in tickers.items():
-                # Очищаем тикеры, чтобы сравнивать их между биржами
-                if BASE_CURRENCY in s and t.get('bid') and t.get('ask'):
-                    # Удаляем лишние приставки бирж (напр. :USDT)
-                    clean_name = s.split(':')[0].replace(f'/{BASE_CURRENCY}', '')
-                    vol = t.get('quoteVolume') or 0
-                    cleaned[clean_name] = {'bid': t['bid'], 'ask': t['ask'], 'full_sym': s, 'vol': vol}
-            
-            if cleaned: prices_ex[ex_id] = cleaned
-        except: continue
+                # Убедимся, что quoteVolume доступен и не None
+                vol = t.get('quoteVolume') if t.get('quoteVolume') is not None else 0
+                
+                if f'{BASE_CURRENCY}' in s and t.get('bid') and t.get('ask') and vol >= min_vol:
+                    bid, ask = t['bid'], t['ask']
+                    if bid > 0 and ((ask - bid) / bid) * 100 <= max_spread:
+                        sym = s.replace(f'/{BASE_CURRENCY}', '').replace(f':{BASE_CURRENCY}', '')
+                        cleaned[sym] = {'bid': bid, 'ask': ask, 'vol': vol}
+            if cleaned: 
+                prices_by_ex[ex_id] = cleaned
+                # st.sidebar.success(f"{ex_id.upper()}: OK ({len(cleaned)} пар прошли фильтры)")
+        except Exception as e: 
+            # st.sidebar.warning(f"{ex_id.upper()}: Ошибка API или IP Block")
+            continue
 
-    # 2. Поиск кандидатов по тикерам
-    pre_candidates = []
-    all_syms = set().union(*(ex.keys() for ex in prices_ex.values()))
-    
+    all_syms = set().union(*(ex.keys() for ex in prices_by_ex.values()))
     for sym in all_syms:
-        ex_with_sym = [ex for ex in prices_ex if sym in prices_ex[ex]]
-        if len(ex_with_sym) >= 2:
-            buy_ex = min(ex_with_sym, key=lambda x: prices_ex[x][sym]['ask'])
-            sell_ex = max(ex_with_sym, key=lambda x: prices_ex[x][sym]['bid'])
-            p_buy, p_sell = prices_ex[buy_ex][sym]['ask'], prices_ex[sell_ex][sym]['bid']
-            vol = max(prices_ex[ex][sym]['vol'] for ex in ex_with_sym)
-            
-            if p_sell > p_buy and vol >= min_vol:
+        bids = {ex: prices_by_ex[ex][sym]['bid'] for ex in prices_by_ex if sym in prices_by_ex[ex]}
+        asks = {ex: prices_by_ex[ex][sym]['ask'] for ex in prices_by_ex if sym in prices_by_ex[ex]}
+        
+        if len(bids) >= 2:
+            buy_ex, sell_ex = min(asks, key=asks.get), max(bids, key=bids.get)
+            p_buy, p_sell = asks[buy_ex], bids[sell_ex]
+            if p_buy > 0 and p_sell > p_buy:
                 diff = ((p_sell - p_buy) / p_buy) * 100
-                if 0.1 < diff < 10: # Фильтр разумного спреда
-                    pre_candidates.append({'sym': sym, 'buy_ex': buy_ex, 'sell_ex': sell_ex, 'diff': diff})
-
-    # 3. Анализ L2 (стаканы) для ТОП-10 фьючерсных пар
-    pre_candidates = sorted(pre_candidates, key=lambda x: x['diff'], reverse=True)[:10]
-    for c in pre_candidates:
-        p_buy_l2 = get_l2_price(objs[c['buy_ex']], prices_ex[c['buy_ex']][c['sym']]['full_sym'], 'buy', invest_amount)
-        p_sell_l2 = get_l2_price(objs[c['sell_ex']], prices_ex[c['sell_ex']][c['sym']]['full_sym'], 'sell', invest_amount)
-
-        if p_buy_l2 and p_sell_l2:
-            net_p = (((p_sell_l2 - p_buy_l2) / p_buy_l2) * 100) - (taker_fee * 2)
-            if net_p > 0:
                 data.append({
-                    'Монета': c['sym'], 
-                    'КУПИТЬ (Long)': c['buy_ex'].upper(), 
-                    'ПРОДАТЬ (Short)': c['sell_ex'].upper(), 
-                    'Чистый %': round(net_p, 3),
-                    'Профит $': round(invest_amount * (net_p / 100), 2)
+                    'Инструмент': sym, 'КУПИТЬ': buy_ex.upper(), 'Цена покупки': p_buy,
+                    'ПРОДАТЬ': sell_ex.upper(), 'Цена продажи': p_sell, 'Профит (%)': round(diff, 3)
                 })
     return pd.DataFrame(data)
 
 # --- ИНТЕРФЕЙС ---
-st.title("📉 Futures/Futures Arbitrage 2026")
-st.info("Скринер ищет разницу цен между бессрочными фьючерсами на разных биржах.")
+st.title("📊 Фьючерсный Арбитраж: Bid / Ask")
 
-with st.sidebar:
-    st.header("Настройки")
-    invest = st.number_input("Объем позиции (USDT)", 10, 100000, 50)
-    fee = st.number_input("Taker Fee %", 0.0, 0.1, 0.04, step=0.01, format="%.3f")
-    min_v = st.number_input("Мин. 24h Объем (USDT)", 0, 50000000, 50000)
-    
-    # Исправленный список без ошибок
-    refresh_options = [15, 30, 60, 120, 300]
-    refresh = st.select_slider("Обновление (сек)", options=refresh_options, value=30)
-    
-    st.header("Алерты")
-    alert_p = st.slider("Звук если профит > %", 0.1, 20.0, 3.0)
+st.sidebar.header("⚙️ Настройки фильтров")
+max_s = st.sidebar.slider("Макс. внутр. спред (%)", 0.0, 1.0, 0.4)
+min_v = st.sidebar.number_input("Мин. объем (USDT)", 0, 10000000, 100000)
+refresh = st.sidebar.select_slider("Обновление (сек)", options=[0, 10, 30, 60, 300], value=60)
+min_p = st.sidebar.slider("Мин. профит для таблицы (%)", 0.0, 3.0, 0.8)
 
+st.sidebar.header("🔔 Звуковой сигнал (Алерт)")
+alert_active = st.sidebar.checkbox("Включить звук оповещения")
+target_sym = st.sidebar.text_input("Монета (напр. BTC)", "BTC").upper()
+target_buy = st.sidebar.selectbox("Где купить", EXCHANGES, index=0)
+target_sell = st.sidebar.selectbox("Где продать", EXCHANGES, index=1)
+target_p = st.sidebar.slider("Сигнал при профите (%)", 0.0, 10.0, 1.0)
+
+# Активация автообновления
 autorefresh(refresh)
 
-df = get_data(min_v, fee, invest)
+# Получение и обработка данных
+df = get_data(max_s, min_v)
 
 if not df.empty:
-    if df['Чистый %'].max() >= alert_p:
-        play_sound()
-        st.success(f"🎯 Найдена связка: {df['Чистый %'].max()}%")
+    # Проверка условия для звука
+    if alert_active:
+        match = df[
+            (df['Инструмент'] == target_sym) & 
+            (df['КУПИТЬ'] == target_buy.upper()) & 
+            (df['ПРОДАТЬ'] == target_sell.upper()) & 
+            (df['Профит (%)'] >= target_p)
+        ]
+        if not match.empty:
+            st.sidebar.warning(f"🎯 ЦЕЛЬ ДОСТИГНУТА: {target_sym}! Профит {match['Профит (%)'].iloc[0]}%")
+            play_sound() # Запуск звука
 
-    st.subheader(f"Актуальные фьючерсные связки (Объем: {invest}$)")
-    st.dataframe(df.sort_values('Чистый %', ascending=False), use_container_width=True)
+    st.subheader("Актуальные связки")
+    # Фильтрация данных для отображения в таблице
+    filtered_df = df[df['Профит (%)'] >= min_p].sort_values('Профит (%)', ascending=False)
+    st.dataframe(filtered_df, use_container_width=True)
 else:
-    st.info("Сканирование фьючерсных рынков... Попробуйте снизить 'Мин. 24h Объем'.")
+    st.info("Поиск связок, проверьте логи в сайдбаре.")
 
-st.caption(f"Дата: 2026-01-16 | Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}")
+st.caption(f"Обновлено: {pd.Timestamp.now().strftime('%H:%M:%S')}")
